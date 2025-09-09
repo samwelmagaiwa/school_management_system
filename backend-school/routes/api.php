@@ -24,6 +24,14 @@ Route::prefix('auth')->group(function () {
     Route::post('/login', [AuthController::class, 'login']);
 });
 
+// Named login route for auth middleware
+Route::get('/login', function () {
+    return response()->json([
+        'success' => false,
+        'message' => 'Authentication required. Please login first.'
+    ], 401);
+})->name('login');
+
 // CSRF cookie route for SPA
 Route::get('/sanctum/csrf-cookie', function () {
     return response()->json(['message' => 'CSRF cookie set']);
@@ -71,6 +79,9 @@ Route::middleware('auth:sanctum')->group(function () {
     // Load remaining module routes
     require base_path('app/Modules/School/routes.php');
     require base_path('app/Modules/Library/routes.php');
+    
+    // SuperAdmin module routes (comprehensive system management)
+    require base_path('app/Modules/SuperAdmin/routes.php');
 });
 
 // Health check route
@@ -89,6 +100,26 @@ Route::get('/test', function () {
         'message' => 'Backend is accessible',
         'cors_enabled' => true,
         'timestamp' => now()->toISOString(),
+    ]);
+});
+
+// Test login endpoint without middlewares
+Route::post('/test-login', function (Request $request) {
+    $user = \App\Modules\User\Models\User::where('email', $request->email)->first();
+    
+    if (!$user || !\Illuminate\Support\Facades\Hash::check($request->password, $user->password)) {
+        return response()->json(['success' => false, 'message' => 'Invalid credentials'], 401);
+    }
+    
+    $token = $user->createToken('test-token')->plainTextToken;
+    
+    return response()->json([
+        'success' => true,
+        'message' => 'Login successful',
+        'data' => [
+            'user' => $user->only(['id', 'first_name', 'last_name', 'email', 'role']),
+            'token' => $token
+        ]
     ]);
 });
 

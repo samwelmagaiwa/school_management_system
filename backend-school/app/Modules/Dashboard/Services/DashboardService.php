@@ -120,7 +120,7 @@ class DashboardService
     {
         return [
             'total_schools' => School::count(),
-            'active_schools' => School::where('status', true)->count(),
+            'active_schools' => School::where('is_active', true)->count(),
             'total_users' => User::count(),
             'active_users' => User::where('status', true)->count(),
             'total_students' => User::where('role', 'Student')->count(),
@@ -366,12 +366,7 @@ class DashboardService
     public function getUserPermissions(string $role): array
     {
         $permissions = [
-            'SuperAdmin' => [
-                'dashboard.view', 'schools.manage', 'users.manage', 'students.manage',
-                'teachers.manage', 'classes.manage', 'subjects.manage', 'fees.manage',
-                'exams.manage', 'attendance.manage', 'library.manage', 'transport.manage',
-                'idcards.manage', 'hr.manage', 'reports.view', 'settings.manage'
-            ],
+            'SuperAdmin' => array_keys(\App\Modules\SuperAdmin\Models\Permission::getSuperAdminPermissions()),
             'Admin' => [
                 'dashboard.view', 'users.manage', 'students.manage', 'teachers.manage',
                 'classes.manage', 'subjects.manage', 'fees.manage', 'exams.manage',
@@ -406,14 +401,40 @@ class DashboardService
     {
         $menuItems = [
             'SuperAdmin' => [
-                ['name' => 'Dashboard', 'route' => '/dashboard', 'icon' => 'fas fa-tachometer-alt', 'permission' => 'dashboard.view'],
-                ['name' => 'Schools', 'route' => '/schools', 'icon' => 'fas fa-school', 'permission' => 'schools.manage'],
-                ['name' => 'Users', 'route' => '/users', 'icon' => 'fas fa-users', 'permission' => 'users.manage'],
-                ['name' => 'Students', 'route' => '/students', 'icon' => 'fas fa-user-graduate', 'permission' => 'students.manage'],
-                ['name' => 'Teachers', 'route' => '/teachers', 'icon' => 'fas fa-chalkboard-teacher', 'permission' => 'teachers.manage'],
-                ['name' => 'Classes', 'route' => '/classes', 'icon' => 'fas fa-door-open', 'permission' => 'classes.manage'],
-                ['name' => 'Reports', 'route' => '/reports', 'icon' => 'fas fa-chart-bar', 'permission' => 'reports.view'],
-                ['name' => 'Settings', 'route' => '/settings', 'icon' => 'fas fa-cog', 'permission' => 'settings.manage'],
+                // Dashboard
+                ['name' => 'Dashboard', 'route' => '/superadmin/dashboard', 'icon' => 'fas fa-tachometer-alt', 'permission' => 'dashboard.view'],
+                
+                // Tenant Management
+                ['name' => 'School Management', 'route' => '/superadmin/schools', 'icon' => 'fas fa-school', 'permission' => 'tenants.view'],
+                
+                // User Management
+                ['name' => 'User Management', 'route' => '/superadmin/users', 'icon' => 'fas fa-users', 'permission' => 'users.view_all'],
+                
+                // Role & Permission Control
+                ['name' => 'Roles & Permissions', 'route' => '/superadmin/roles', 'icon' => 'fas fa-user-shield', 'permission' => 'roles.define'],
+                
+                // System Configuration
+                ['name' => 'System Settings', 'route' => '/superadmin/system', 'icon' => 'fas fa-cogs', 'permission' => 'system.global_settings'],
+                
+                // Monitoring & Reporting
+                ['name' => 'Analytics & Reports', 'route' => '/superadmin/reports', 'icon' => 'fas fa-chart-bar', 'permission' => 'reports.cross_tenant'],
+                ['name' => 'Activity Logs', 'route' => '/superadmin/logs', 'icon' => 'fas fa-clipboard-list', 'permission' => 'logs.activity'],
+                
+                // Data & Security
+                ['name' => 'Backup & Security', 'route' => '/superadmin/security', 'icon' => 'fas fa-shield-alt', 'permission' => 'data.backup'],
+                ['name' => 'Integrations', 'route' => '/superadmin/integrations', 'icon' => 'fas fa-plug', 'permission' => 'integrations.manage'],
+                
+                // Communication Control
+                ['name' => 'Communications', 'route' => '/superadmin/communications', 'icon' => 'fas fa-bullhorn', 'permission' => 'communication.announcements'],
+                
+                // Billing & Subscription
+                ['name' => 'Billing & Subscriptions', 'route' => '/superadmin/billing', 'icon' => 'fas fa-credit-card', 'permission' => 'billing.plans'],
+                
+                // Module Management
+                ['name' => 'Module Management', 'route' => '/superadmin/modules', 'icon' => 'fas fa-cubes', 'permission' => 'modules.enable'],
+                
+                // Support & Maintenance
+                ['name' => 'Support & Maintenance', 'route' => '/superadmin/support', 'icon' => 'fas fa-tools', 'permission' => 'support.tickets'],
             ],
             'Admin' => [
                 ['name' => 'Dashboard', 'route' => '/dashboard', 'icon' => 'fas fa-tachometer-alt', 'permission' => 'dashboard.view'],
