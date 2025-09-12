@@ -5,6 +5,8 @@ use App\Modules\SuperAdmin\Controllers\SuperAdminController;
 use App\Modules\SuperAdmin\Controllers\TenantController;
 use App\Modules\SuperAdmin\Controllers\SubscriptionPlanController;
 use App\Modules\SuperAdmin\Controllers\RolePermissionController;
+use App\Modules\SuperAdmin\Controllers\SuperAdminUserController;
+use App\Modules\School\Controllers\SchoolController;
 
 /*
 |--------------------------------------------------------------------------
@@ -110,5 +112,42 @@ Route::middleware(['auth:sanctum'])->prefix('superadmin')->group(function () {
         Route::post('/grant-module-access', [RolePermissionController::class, 'grantModuleAccess'])->name('superadmin.permissions.grant-module');
         Route::post('/revoke-module-access', [RolePermissionController::class, 'revokeModuleAccess'])->name('superadmin.permissions.revoke-module');
         Route::post('/reset-to-default', [RolePermissionController::class, 'resetToDefault'])->name('superadmin.permissions.reset-default');
+    });
+    
+    // User Management
+    Route::prefix('users')->group(function () {
+        Route::get('/', [SuperAdminUserController::class, 'index'])->name('superadmin.users.index');
+        Route::post('/', [SuperAdminUserController::class, 'store'])->name('superadmin.users.store');
+        Route::get('/statistics', [SuperAdminUserController::class, 'getStatistics'])->name('superadmin.users.statistics');
+        Route::get('/analytics', [SuperAdminUserController::class, 'getAnalytics'])->name('superadmin.users.analytics');
+        Route::get('/schools', [SuperAdminUserController::class, 'getSchools'])->name('superadmin.users.schools');
+        Route::get('/roles', [SuperAdminUserController::class, 'getRoles'])->name('superadmin.users.roles');
+        Route::post('/bulk-action', [SuperAdminUserController::class, 'bulkAction'])->name('superadmin.users.bulk-action');
+        Route::post('/export', [SuperAdminUserController::class, 'export'])->name('superadmin.users.export');
+        Route::post('/import', [SuperAdminUserController::class, 'import'])->name('superadmin.users.import');
+        
+        Route::get('/{user}', [SuperAdminUserController::class, 'show'])->name('superadmin.users.show');
+        Route::put('/{user}', [SuperAdminUserController::class, 'update'])->name('superadmin.users.update');
+        Route::delete('/{user}', [SuperAdminUserController::class, 'destroy'])->name('superadmin.users.destroy');
+        Route::post('/{user}/reset-password', [SuperAdminUserController::class, 'resetPassword'])->name('superadmin.users.reset-password');
+        Route::post('/{user}/toggle-status', [SuperAdminUserController::class, 'toggleStatus'])->name('superadmin.users.toggle-status');
+        Route::get('/{user}/activity-logs', [SuperAdminUserController::class, 'getActivityLogs'])->name('superadmin.users.activity-logs');
+        Route::post('/{user}/send-password-reset-email', [SuperAdminUserController::class, 'sendPasswordResetEmail'])->name('superadmin.users.send-password-reset-email');
+        Route::post('/{user}/impersonate', [SuperAdminUserController::class, 'impersonate'])->name('superadmin.users.impersonate');
+    });
+    
+    // School Management (SuperAdmin can manage all schools)
+    Route::prefix('schools')->group(function () {
+        Route::get('/', [SchoolController::class, 'index'])->name('superadmin.schools.index');
+        Route::post('/', [SchoolController::class, 'store'])->name('superadmin.schools.store');
+        Route::get('/statistics', [SchoolController::class, 'systemStatistics'])->name('superadmin.schools.statistics');
+        Route::post('/export', [SchoolController::class, 'export'])->name('superadmin.schools.export');
+        Route::get('/{school}', [SchoolController::class, 'show'])->name('superadmin.schools.show');
+        Route::put('/{school}', [SchoolController::class, 'update'])->name('superadmin.schools.update');
+        Route::delete('/{school}', [SchoolController::class, 'destroy'])->name('superadmin.schools.destroy');
+        Route::get('/{school}/statistics', [SchoolController::class, 'schoolStatistics'])->name('superadmin.schools.individual.statistics');
+        Route::get('/{school}/dashboard', [SchoolController::class, 'dashboard'])->name('superadmin.schools.dashboard');
+        Route::get('/{school}/settings', [SchoolController::class, 'getSettings'])->name('superadmin.schools.settings.show');
+        Route::put('/{school}/settings', [SchoolController::class, 'updateSettings'])->name('superadmin.schools.settings.update');
     });
 });

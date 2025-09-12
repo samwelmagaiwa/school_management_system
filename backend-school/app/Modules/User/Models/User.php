@@ -64,7 +64,8 @@ class User extends Authenticatable
         'Teacher',
         'Student',
         'Parent',
-        'Accountant'
+        'Accountant',
+        'HR'
     ];
 
     // Relationships
@@ -167,6 +168,11 @@ class User extends Authenticatable
     public function isAccountant()
     {
         return $this->role === 'Accountant';
+    }
+
+    public function isHR()
+    {
+        return $this->role === 'HR';
     }
 
     public function isActive()
@@ -350,6 +356,15 @@ class User extends Authenticatable
                 'students.view',
                 'billing.manage',
                 'invoices.manage'
+            ],
+            'HR' => [
+                'dashboard.view',
+                'employees.manage',
+                'hr.manage',
+                'payroll.manage',
+                'attendance.view',
+                'reports.hr',
+                'users.view'
             ]
         ];
 

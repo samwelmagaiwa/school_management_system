@@ -50,7 +50,7 @@ class SchoolController extends Controller
 
         // Status filter
         if ($request->filled('status')) {
-            $query->where('status', $request->boolean('status'));
+            $query->where('is_active', $request->boolean('status'));
         }
 
         // Sorting
@@ -357,5 +357,127 @@ class SchoolController extends Controller
                 'error' => $e->getMessage()
             ], 500);
         }
+    }
+
+    /**
+     * Export schools data
+     */
+    public function export(Request $request): mixed
+    {
+        // Check authorization - only SuperAdmin can export schools
+        if (!auth()->user()->isSuperAdmin()) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Unauthorized access'
+            ], 403);
+        }
+
+        try {
+            $query = School::query();
+
+            // Apply filters from request
+            if ($request->filled('search')) {
+                $query->search($request->search);
+            }
+
+            if ($request->filled('status')) {
+                $query->where('is_active', $request->boolean('status'));
+            }
+
+            if ($request->filled('school_type')) {
+                $query->where('school_type', $request->school_type);
+            }
+
+            // Get all matching schools
+            $schools = $query->orderBy('name', 'asc')->get();
+
+            // Prepare export data
+            $exportData = $schools->map(function ($school) {
+                return [
+                    'ID' => $school->id,
+                    'Name' => $school->name,
+                    'Code' => $school->code,
+                    'Email' => $school->email,
+                    'Phone' => $school->phone,
+                    'Website' => $school->website,
+                    'Address' => $school->address,
+                    'Principal Name' => $school->principal_name,
+                    'Principal Email' => $school->principal_email,
+                    'Principal Phone' => $school->principal_phone,
+                    'School Type' => $school->school_type,
+                    'Board Affiliation' => $school->board_affiliation,
+                    'Established Year' => $school->established_year,
+                    'Registration Number' => $school->registration_number,
+                    'Tax ID' => $school->tax_id,
+                    'Status' => $school->is_active ? 'Active' : 'Inactive',
+                    'Created At' => $school->created_at?->format('Y-m-d H:i:s'),
+                    'Updated At' => $school->updated_at?->format('Y-m-d H:i:s'),
+                ];
+            });
+
+            ActivityLogger::logSchool('Schools Data Exported', [
+                'total_records' => $schools->count(),
+                'filters' => $request->only(['search', 'status', 'school_type'])
+            ]);
+
+            // Return CSV format
+            $format = $request->get('format', 'csv');
+            $filename = 'schools_export_' . now()->format('Y-m-d_H-i-s');
+
+            if ($format === 'json') {
+                return response()->json([
+                    'success' => true,
+                    'data' => $exportData,
+                    'filename' => $filename . '.json',
+                    'total_records' => $schools->count()
+                ]);
+            }
+
+            // Generate CSV content
+            $csvContent = $this->generateCsvContent($exportData);
+
+            return response($csvContent, 200, [
+                'Content-Type' => 'text/csv',
+                'Content-Disposition' => 'attachment; filename="' . $filename . '.csv"',
+                'Content-Length' => strlen($csvContent)
+            ]);
+        } catch (Exception $e) {
+            ActivityLogger::logSchool('Schools Export Failed', [
+                'error' => $e->getMessage(),
+                'filters' => $request->only(['search', 'status', 'school_type'])
+            ], 'error');
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to export schools data',
+                'error' => $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * Generate CSV content from data array
+     */
+    private function generateCsvContent(array $data): string
+    {
+        if (empty($data)) {
+            return '';
+        }
+
+        $output = fopen('php://temp', 'r+');
+        
+        // Add header row
+        fputcsv($output, array_keys($data[0]));
+        
+        // Add data rows
+        foreach ($data as $row) {
+            fputcsv($output, $row);
+        }
+        
+        rewind($output);
+        $csvContent = stream_get_contents($output);
+        fclose($output);
+        
+        return $csvContent;
     }
 }

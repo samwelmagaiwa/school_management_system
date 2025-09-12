@@ -200,7 +200,7 @@ class SchoolService
                     // System-wide statistics
                     $stats = [
                         'total_schools' => School::count(),
-                        'active_schools' => School::where('status', 'active')->count(),
+                        'active_schools' => School::where('is_active', 1)->count(),
                         'total_students' => DB::table('students')->count(),
                         'total_teachers' => DB::table('teachers')->count(),
                         'total_users' => DB::table('users')->count(),
@@ -208,10 +208,10 @@ class SchoolService
                     ];
 
                     // School type distribution
-                    $schoolTypes = School::select('type', DB::raw('count(*) as count'))
-                        ->groupBy('type')
+                    $schoolTypes = School::select('school_type', DB::raw('count(*) as count'))
+                        ->groupBy('school_type')
                         ->get()
-                        ->pluck('count', 'type')
+                        ->pluck('count', 'school_type')
                         ->toArray();
 
                     $stats['school_type_distribution'] = $schoolTypes;
