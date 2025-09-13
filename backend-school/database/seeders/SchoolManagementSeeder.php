@@ -2,11 +2,14 @@
 
 namespace Database\Seeders;
 
-use App\Modules\School\Models\School;
-use App\Modules\User\Models\User;
-use App\Modules\Student\Models\Student;
 use Illuminate\Database\Seeder;
 use Illuminate\Support\Facades\Hash;
+use App\Models\User;
+use App\Models\School;
+use App\Models\SchoolClass;
+use App\Models\Subject;
+use App\Models\Student;
+use App\Models\Teacher;
 
 class SchoolManagementSeeder extends Seeder
 {
@@ -15,140 +18,231 @@ class SchoolManagementSeeder extends Seeder
      */
     public function run(): void
     {
-        // Create SuperAdmin user
-        $superAdmin = User::create([
-            'first_name' => 'Super',
-            'last_name' => 'Admin',
-            'email' => 'superadmin@school.com',
-            'password' => Hash::make('password'),
-            'phone' => '+1234567890',
-            'date_of_birth' => '1980-01-01',
-            'gender' => 'Male',
-            'role' => 'SuperAdmin',
-            'school_id' => null,
-            'status' => true,
-            'email_verified_at' => now(),
-        ]);
-
-        // Create sample schools
-        $schools = [
+        // Create Super Admin User
+        $superAdmin = User::updateOrCreate(
+            ['email' => 'superadmin@gmail.com'],
             [
-                'name' => 'Greenwood High School',
-                'code' => 'GHS',
-                'address' => '123 Education Street, Learning City, LC 12345',
-                'phone' => '+1234567891',
-                'email' => 'info@greenwood.edu',
-                'website' => 'https://greenwood.edu',
-                'established_date' => '1995-06-15',
-                'principal_name' => 'Dr. Sarah Johnson',
-                'description' => 'A premier educational institution focused on academic excellence.',
+                'first_name' => 'Super',
+                'last_name' => 'Admin',
+                'password' => Hash::make('12345678'),
+                'role' => 'SuperAdmin',
+                'email_verified_at' => now(),
                 'status' => true,
+            ]
+        );
+
+        // Create a sample school
+        $school = School::updateOrCreate(
+            ['code' => 'DHS'],
+            [
+                'name' => 'Demo High School',
+                'address' => '123 Education Street, Learning City',
+                'phone' => '+1234567890',
+                'email' => 'info@demohighschool.com',
+                'website' => 'https://demohighschool.com',
+                'principal_name' => 'Dr. Jane Smith',
+                'established_date' => '2000-01-01',
+                'description' => 'A premier educational institution focused on excellence.',
+                'status' => true,
+            ]
+        );
+
+        // Create School Admin
+        $schoolAdmin = User::updateOrCreate(
+            ['email' => 'schooladmin@gmail.com'],
+            [
+                'first_name' => 'School',
+                'last_name' => 'Admin',
+                'password' => Hash::make('12345678'),
+                'role' => 'Admin',
+                'school_id' => $school->id,
+                'email_verified_at' => now(),
+                'status' => true,
+            ]
+        );
+
+        // Create Classes
+        $classes = [
+            ['name' => 'Grade 9', 'section' => 'A', 'capacity' => 30, 'grade_level' => 9],
+            ['name' => 'Grade 9', 'section' => 'B', 'capacity' => 30, 'grade_level' => 9],
+            ['name' => 'Grade 10', 'section' => 'A', 'capacity' => 30, 'grade_level' => 10],
+            ['name' => 'Grade 10', 'section' => 'B', 'capacity' => 30, 'grade_level' => 10],
+            ['name' => 'Grade 11', 'section' => 'A', 'capacity' => 30, 'grade_level' => 11],
+            ['name' => 'Grade 12', 'section' => 'A', 'capacity' => 30, 'grade_level' => 12],
+        ];
+
+        $schoolClasses = [];
+        foreach ($classes as $classData) {
+            $schoolClasses[] = SchoolClass::updateOrCreate(
+                [
+                    'school_id' => $school->id,
+                    'name' => $classData['name'],
+                    'section' => $classData['section']
+                ],
+                [
+                    'capacity' => $classData['capacity'],
+                    'is_active' => true,
+                ]
+            );
+        }
+
+        // Create Subjects
+        $subjects = [
+            'Mathematics',
+            'English Language',
+            'Science',
+            'Physics',
+            'Chemistry',
+            'Biology',
+            'History',
+            'Geography',
+            'Computer Science',
+            'Physical Education',
+        ];
+
+        $subjectModels = [];
+        foreach ($subjects as $subjectName) {
+            $subjectModels[] = Subject::updateOrCreate(
+                [
+                    'school_id' => $school->id,
+                    'name' => $subjectName
+                ],
+                [
+                    'code' => strtoupper(substr($subjectName, 0, 3)) . rand(100, 999),
+                    'description' => $subjectName . ' curriculum for high school students',
+                    'status' => true,
+                ]
+            );
+        }
+
+        // Create Teacher Users
+        $teacherUsers = [
+            [
+                'first_name' => 'John',
+                'last_name' => 'Mathematics',
+                'email' => 'john.math@gmail.com',
             ],
             [
-                'name' => 'Riverside Elementary',
-                'code' => 'RES',
-                'address' => '456 River Road, Riverside, RS 67890',
-                'phone' => '+1234567892',
-                'email' => 'contact@riverside.edu',
-                'website' => 'https://riverside.edu',
-                'established_date' => '2000-09-01',
-                'principal_name' => 'Mr. Michael Brown',
-                'description' => 'Nurturing young minds with innovative teaching methods.',
-                'status' => true,
+                'first_name' => 'Sarah',
+                'last_name' => 'Johnson',
+                'email' => 'sarah.english@gmail.com',
+            ],
+            [
+                'first_name' => 'Michael',
+                'last_name' => 'Brown',
+                'email' => 'michael.science@gmail.com',
+            ],
+            [
+                'first_name' => 'Emily',
+                'last_name' => 'Davis',
+                'email' => 'emily.physics@gmail.com',
             ],
         ];
 
-        foreach ($schools as $schoolData) {
-            $school = School::create($schoolData);
-
-            // Create Admin for each school
-            $admin = User::create([
-                'first_name' => 'School',
-                'last_name' => 'Admin',
-                'email' => strtolower($school->code) . '.admin@school.com',
-                'password' => Hash::make('password'),
-                'phone' => '+1234567893',
-                'date_of_birth' => '1985-05-15',
-                'gender' => 'Female',
-                'role' => 'Admin',
-                'school_id' => $school->id,
-                'status' => true,
-                'email_verified_at' => now(),
-            ]);
-
-            // Create Teachers for each school
-            for ($i = 1; $i <= 3; $i++) {
-                $teacher = User::create([
-                    'first_name' => 'Teacher',
-                    'last_name' => "Number{$i}",
-                    'email' => strtolower($school->code) . ".teacher{$i}@school.com",
-                    'password' => Hash::make('password'),
-                    'phone' => '+123456789' . (3 + $i),
-                    'date_of_birth' => '1990-0' . ($i + 2) . '-10',
-                    'gender' => $i % 2 == 0 ? 'Female' : 'Male',
+        foreach ($teacherUsers as $teacherData) {
+            $user = User::updateOrCreate(
+                ['email' => $teacherData['email']],
+                [
+                    'first_name' => $teacherData['first_name'],
+                    'last_name' => $teacherData['last_name'],
+                    'password' => Hash::make('12345678'),
                     'role' => 'Teacher',
                     'school_id' => $school->id,
-                    'status' => true,
                     'email_verified_at' => now(),
-                ]);
-            }
-
-            // Create Students for each school
-            for ($i = 1; $i <= 10; $i++) {
-                $studentUser = User::create([
-                    'first_name' => 'Student',
-                    'last_name' => "Number{$i}",
-                    'email' => strtolower($school->code) . ".student{$i}@school.com",
-                    'password' => Hash::make('password'),
-                    'phone' => '+123456789' . (10 + $i),
-                    'date_of_birth' => '2010-0' . (($i % 9) + 1) . '-15',
-                    'gender' => $i % 2 == 0 ? 'Female' : 'Male',
-                    'role' => 'Student',
-                    'school_id' => $school->id,
                     'status' => true,
-                    'email_verified_at' => now(),
-                ]);
+                ]
+            );
 
-                // Create Student record
-                Student::create([
-                    'user_id' => $studentUser->id,
+            // Create Teacher record if it doesn't exist
+            if (!Teacher::where('user_id', $user->id)->exists()) {
+                Teacher::create([
+                    'user_id' => $user->id,
                     'school_id' => $school->id,
-                    'admission_no' => $school->code . date('Y') . str_pad($i, 4, '0', STR_PAD_LEFT),
-                    'class_id' => null, // Would be set based on available classes
-                    'section' => ['A', 'B', 'C'][$i % 3],
-                    'roll_number' => $i,
-                    'admission_date' => now()->subMonths(rand(1, 12)),
-                    'parent_name' => 'Parent of Student Number' . $i,
-                    'parent_phone' => '+123456789' . (20 + $i),
-                    'parent_email' => strtolower($school->code) . ".parent{$i}@school.com",
-                    'emergency_contact' => '+123456789' . (30 + $i),
-                    'blood_group' => ['A+', 'B+', 'O+', 'AB+'][$i % 4],
-                    'medical_conditions' => $i % 5 == 0 ? 'Asthma' : null,
-                    'transport_required' => $i % 3 == 0,
+                    'employee_id' => 'EMP' . str_pad($user->id, 4, '0', STR_PAD_LEFT),
+                    'phone' => '+1234567' . str_pad($user->id, 3, '0', STR_PAD_LEFT),
+                    'address' => rand(100, 999) . ' Teacher Street, Education City',
+                    'date_of_birth' => now()->subYears(rand(25, 45))->format('Y-m-d'),
+                    'gender' => rand(0, 1) ? 'male' : 'female',
+                    'qualification' => 'Bachelor of Education',
+                    'experience_years' => rand(1, 15),
+                    'joining_date' => now()->subYears(rand(1, 5))->format('Y-m-d'),
+                    'salary' => rand(40000, 80000),
                     'status' => true,
-                ]);
-
-                // Create Parent user
-                User::create([
-                    'first_name' => 'Parent',
-                    'last_name' => "OfStudent{$i}",
-                    'email' => strtolower($school->code) . ".parent{$i}@school.com",
-                    'password' => Hash::make('password'),
-                    'phone' => '+123456789' . (20 + $i),
-                    'date_of_birth' => '1980-0' . (($i % 9) + 1) . '-20',
-                    'gender' => $i % 2 == 0 ? 'Male' : 'Female',
-                    'role' => 'Parent',
-                    'school_id' => $school->id,
-                    'status' => true,
-                    'email_verified_at' => now(),
                 ]);
             }
         }
 
-        $this->command->info('School Management System seeded successfully!');
-        $this->command->info('SuperAdmin: superadmin@school.com / password');
-        $this->command->info('School Admins: ghs.admin@school.com, res.admin@school.com / password');
-        $this->command->info('Teachers: ghs.teacher1@school.com, res.teacher1@school.com / password');
-        $this->command->info('Students: ghs.student1@school.com, res.student1@school.com / password');
+        // Create Student Users
+        $studentNames = [
+            ['Alice', 'Wilson'],
+            ['Bob', 'Anderson'],
+            ['Charlie', 'Thomas'],
+            ['Diana', 'Jackson'],
+            ['Edward', 'White'],
+        ];
+
+        foreach ($studentNames as $index => $studentName) {
+            $email = strtolower($studentName[0]) . '.' . strtolower($studentName[1]) . '@gmail.com';
+            
+            $user = User::updateOrCreate(
+                ['email' => $email],
+                [
+                    'first_name' => $studentName[0],
+                    'last_name' => $studentName[1],
+                    'password' => Hash::make('12345678'),
+                    'role' => 'Student',
+                    'school_id' => $school->id,
+                    'email_verified_at' => now(),
+                    'status' => true,
+                ]
+            );
+
+            // Assign student to first class
+            $randomClass = $schoolClasses[0];
+
+            // Create Student record if it doesn't exist
+            if (!Student::where('user_id', $user->id)->exists()) {
+                Student::create([
+                    'user_id' => $user->id,
+                    'school_id' => $school->id,
+                    'class_id' => $randomClass->id,
+                    'admission_number' => $school->code . '2024' . str_pad($user->id, 4, '0', STR_PAD_LEFT),
+                    'roll_number' => $index + 1,
+                    'section' => $randomClass->section,
+                    'date_of_birth' => now()->subYears(rand(14, 18))->format('Y-m-d'),
+                    'gender' => rand(0, 1) ? 'male' : 'female',
+                    'blood_group' => ['A+', 'B+', 'O+', 'AB+'][rand(0, 3)],
+                    'phone' => '+1234567' . str_pad($user->id, 3, '0', STR_PAD_LEFT),
+                    'address' => rand(100, 999) . ' Student Avenue, Learning City',
+                    'parent_name' => 'Parent of ' . $studentName[0] . ' ' . $studentName[1],
+                    'parent_phone' => '+1234568' . str_pad($user->id, 3, '0', STR_PAD_LEFT),
+                    'parent_email' => 'parent.' . strtolower($studentName[0]) . '@gmail.com',
+                    'admission_date' => now()->subMonths(rand(1, 12))->format('Y-m-d'),
+                    'emergency_contacts' => [
+                        [
+                            'name' => 'Emergency Contact',
+                            'relationship' => 'Guardian',
+                            'phone' => '+1234569' . str_pad($user->id, 3, '0', STR_PAD_LEFT),
+                        ]
+                    ],
+                    'status' => true,
+                ]);
+            }
+        }
+
+        $this->command->info('✅ School Management System seeded successfully!');
+        $this->command->info('');
+        $this->command->info('🎯 Login Credentials:');
+        $this->command->info('📧 Super Admin: superadmin@gmail.com | Password: 12345678');
+        $this->command->info('📧 School Admin: schooladmin@gmail.com | Password: 12345678');
+        $this->command->info('📧 Teacher Example: john.math@gmail.com | Password: 12345678');
+        $this->command->info('📧 Student Example: alice.wilson@gmail.com | Password: 12345678');
+        $this->command->info('');
+        $this->command->info('📊 Created:');
+        $this->command->info("• 1 School: {$school->name}");
+        $this->command->info('• ' . count($schoolClasses) . ' Classes');
+        $this->command->info('• ' . count($subjectModels) . ' Subjects');
+        $this->command->info('• ' . count($teacherUsers) . ' Teachers');
+        $this->command->info('• ' . count($studentNames) . ' Students');
     }
 }

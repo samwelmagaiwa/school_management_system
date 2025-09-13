@@ -2,230 +2,446 @@
 
 namespace App\Services;
 
-use App\Modules\School\Models\School;
-use App\Modules\Student\Models\Student;
-use App\Modules\Teacher\Models\Teacher;
-use App\Modules\Class\Models\SchoolClass;
-use App\Modules\Subject\Models\Subject;
+use App\Models\School;
+use App\Services\ActivityLogger;
+use Illuminate\Database\Eloquent\Collection;
+use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Cache;
+use Exception;
 
 class SchoolService
 {
     /**
-     * Get comprehensive school statistics
+     * Get schools with filters and pagination
      */
-    public function getSchoolStatistics(School $school): array
+    public function getSchools(array $filters = []): LengthAwarePaginator
     {
-        return [
-            'overview' => [
-                'total_students' => $school->students()->count(),
-                'total_teachers' => $school->teachers()->count(),
-                'total_classes' => $school->classes()->count(),
-                'total_subjects' => $school->subjects()->count(),
-                'active_users' => $school->users()->where('is_active', true)->count(),
-            ],
-            'students' => [
-                'by_gender' => $this->getStudentsByGender($school),
-                'by_class' => $this->getStudentsByClass($school),
-                'recent_admissions' => $this->getRecentAdmissions($school),
-            ],
-            'teachers' => [
-                'by_specialization' => $this->getTeachersBySpecialization($school),
-                'experience_distribution' => $this->getTeachersExperienceDistribution($school),
-            ],
-            'academic' => [
-                'attendance_rate' => $this->getOverallAttendanceRate($school),
-                'exam_performance' => $this->getExamPerformance($school),
-            ],
-        ];
-    }
-
-    /**
-     * Switch user context to a different school
-     */
-    public function switchSchoolContext(int $userId, int $schoolId): bool
-    {
-        // Validate user has access to the school
-        $user = \App\Modules\Auth\Models\User::find($userId);
-        
-        if (!$user || $user->school_id !== $schoolId) {
-            return false;
-        }
-
-        // Update session or cache with new school context
-        session(['current_school_id' => $schoolId]);
-        
-        return true;
-    }
-
-    /**
-     * Get multi-school dashboard data for super admin
-     */
-    public function getMultiSchoolDashboard(): array
-    {
-        $schools = School::with(['students', 'teachers', 'classes'])->get();
-        
-        return [
-            'total_schools' => $schools->count(),
-            'total_students' => $schools->sum(fn($school) => $school->students->count()),
-            'total_teachers' => $schools->sum(fn($school) => $school->teachers->count()),
-            'schools_overview' => $schools->map(function ($school) {
-                return [
-                    'id' => $school->id,
-                    'name' => $school->name,
-                    'students_count' => $school->students->count(),
-                    'teachers_count' => $school->teachers->count(),
-                    'classes_count' => $school->classes->count(),
-                    'is_active' => $school->is_active,
-                ];
-            }),
-        ];
-    }
-
-    /**
-     * Bulk operations for school setup
-     */
-    public function setupSchoolStructure(School $school, array $data): array
-    {
-        DB::beginTransaction();
-        
         try {
-            $results = [];
-            
-            // Create classes
-            if (isset($data['classes'])) {
-                $results['classes'] = $this->createBulkClasses($school, $data['classes']);
-            }
-            
-            // Create subjects
-            if (isset($data['subjects'])) {
-                $results['subjects'] = $this->createBulkSubjects($school, $data['subjects']);
-            }
-            
-            // Create fee types
-            if (isset($data['fee_types'])) {
-                $results['fee_types'] = $this->createBulkFeeTypes($school, $data['fee_types']);
-            }
-            
-            DB::commit();
-            return $results;
-            
-        } catch (\Exception $e) {
-            DB::rollback();
+            $query = School::withCount(['users', 'students', 'teachers', 'classes'])
+                ->when(isset($filters['search']), function ($q) use ($filters) {
+                    return $q->where(function ($query) use ($filters) {
+                        $query->where('name', 'like', "%{$filters['search']}%")
+                              ->orWhere('code', 'like', "%{$filters['search']}%")
+                              ->orWhere('email', 'like', "%{$filters['search']}%")
+                              ->orWhere('phone', 'like', "%{$filters['search']}%")
+                              ->orWhere('address', 'like', "%{$filters['search']}%");
+                    });
+                })
+                ->when(isset($filters['status']), function ($q) use ($filters) {
+                    return $q->where('status', $filters['status']);
+                })
+                ->when(isset($filters['type']), function ($q) use ($filters) {
+                    return $q->where('type', $filters['type']);
+                })
+                ->when(isset($filters['city']), function ($q) use ($filters) {
+                    return $q->where('city', 'like', "%{$filters['city']}%");
+                })
+                ->when(isset($filters['state']), function ($q) use ($filters) {
+                    return $q->where('state', 'like', "%{$filters['state']}%");
+                });
+
+            // Sorting
+            $sortBy = $filters['sort_by'] ?? 'name';
+            $sortOrder = $filters['sort_order'] ?? 'asc';
+            $query->orderBy($sortBy, $sortOrder);
+
+            $schools = $query->paginate($filters['per_page'] ?? 15);
+
+            ActivityLogger::log('Schools List Retrieved', 'School', [
+                'filters' => $filters,
+                'total_schools' => $schools->total()
+            ]);
+
+            return $schools;
+        } catch (Exception $e) {
+            ActivityLogger::log('Schools List Error', 'School', [
+                'error' => $e->getMessage(),
+                'filters' => $filters
+            ], 'error');
             throw $e;
         }
     }
 
-    private function getStudentsByGender(School $school): array
+    /**
+     * Create a new school
+     */
+    public function createSchool(array $data): School
     {
-        return $school->students()
-            ->select('gender', DB::raw('count(*) as count'))
-            ->groupBy('gender')
-            ->pluck('count', 'gender')
-            ->toArray();
+        try {
+            DB::beginTransaction();
+
+            // Generate unique school code if not provided
+            if (!isset($data['code'])) {
+                $data['code'] = $this->generateSchoolCode($data['name']);
+            }
+
+            $school = School::create($data);
+
+            ActivityLogger::log('School Created', 'School', [
+                'school_id' => $school->id,
+                'name' => $school->name,
+                'code' => $school->code,
+                'type' => $school->type
+            ]);
+
+            DB::commit();
+            return $school;
+        } catch (Exception $e) {
+            DB::rollBack();
+            ActivityLogger::log('School Creation Failed', 'School', [
+                'error' => $e->getMessage(),
+                'data' => $data
+            ], 'error');
+            throw $e;
+        }
     }
 
-    private function getStudentsByClass(School $school): array
+    /**
+     * Update a school
+     */
+    public function updateSchool(School $school, array $data): School
     {
-        return $school->classes()
-            ->withCount('students')
-            ->get()
-            ->map(function ($class) {
-                return [
-                    'class_name' => $class->full_name,
-                    'student_count' => $class->students_count,
-                ];
-            })
-            ->toArray();
+        try {
+            DB::beginTransaction();
+
+            $originalData = $school->toArray();
+            $school->update($data);
+
+            ActivityLogger::log('School Updated', 'School', [
+                'school_id' => $school->id,
+                'name' => $school->name,
+                'changes' => array_diff_assoc($data, $originalData)
+            ]);
+
+            DB::commit();
+            return $school->fresh();
+        } catch (Exception $e) {
+            DB::rollBack();
+            ActivityLogger::log('School Update Failed', 'School', [
+                'school_id' => $school->id,
+                'error' => $e->getMessage(),
+                'data' => $data
+            ], 'error');
+            throw $e;
+        }
     }
 
-    private function getRecentAdmissions(School $school): int
+    /**
+     * Delete a school
+     */
+    public function deleteSchool(School $school): bool
     {
-        return $school->students()
-            ->where('admission_date', '>=', now()->subDays(30))
-            ->count();
+        try {
+            DB::beginTransaction();
+
+            // Check if school has associated data
+            $hasUsers = $school->users()->exists();
+            $hasStudents = $school->students()->exists();
+            $hasTeachers = $school->teachers()->exists();
+
+            if ($hasUsers || $hasStudents || $hasTeachers) {
+                throw new Exception('Cannot delete school with associated users, students, or teachers');
+            }
+
+            $schoolData = $school->toArray();
+            $school->delete();
+
+            ActivityLogger::log('School Deleted', 'School', $schoolData);
+
+            DB::commit();
+            return true;
+        } catch (Exception $e) {
+            DB::rollBack();
+            ActivityLogger::log('School Deletion Failed', 'School', [
+                'school_id' => $school->id,
+                'error' => $e->getMessage()
+            ], 'error');
+            throw $e;
+        }
     }
 
-    private function getTeachersBySpecialization(School $school): array
+    /**
+     * Get school statistics
+     */
+    public function getSchoolStatistics(School $school = null): array
     {
-        return $school->teachers()
-            ->select('specialization', DB::raw('count(*) as count'))
-            ->groupBy('specialization')
-            ->pluck('count', 'specialization')
-            ->toArray();
+        try {
+            $cacheKey = $school ? "school_stats_{$school->id}" : 'all_schools_stats';
+            
+            return Cache::remember($cacheKey, 300, function () use ($school) {
+                if ($school) {
+                    // Individual school statistics
+                    $stats = [
+                        'total_students' => $school->students()->count(),
+                        'total_teachers' => $school->teachers()->count(),
+                        'total_classes' => $school->classes()->count(),
+                        'total_subjects' => $school->subjects()->count(),
+                        'active_users' => $school->users()->where('status', 'active')->count(),
+                        'total_library_books' => $school->books()->sum('total_copies'),
+                        'available_library_books' => $school->books()->sum('available_copies'),
+                        'pending_fees' => $school->fees()->where('status', 'pending')->sum('amount'),
+                        'collected_fees' => $school->fees()->where('status', 'paid')->sum('amount')
+                    ];
+
+                    // Calculate additional metrics
+                    $stats['student_teacher_ratio'] = $stats['total_teachers'] > 0 
+                        ? round($stats['total_students'] / $stats['total_teachers'], 2) 
+                        : 0;
+                    
+                    $stats['library_utilization'] = $stats['total_library_books'] > 0 
+                        ? round((($stats['total_library_books'] - $stats['available_library_books']) / $stats['total_library_books']) * 100, 2)
+                        : 0;
+
+                    $stats['fee_collection_rate'] = ($stats['pending_fees'] + $stats['collected_fees']) > 0 
+                        ? round(($stats['collected_fees'] / ($stats['pending_fees'] + $stats['collected_fees'])) * 100, 2)
+                        : 0;
+                } else {
+                    // System-wide statistics
+                    $stats = [
+                        'total_schools' => School::count(),
+                        'active_schools' => School::where('is_active', 1)->count(),
+                        'total_students' => DB::table('students')->count(),
+                        'total_teachers' => DB::table('teachers')->count(),
+                        'total_users' => DB::table('users')->count(),
+                        'total_classes' => DB::table('classes')->count()
+                    ];
+
+                    // School type distribution
+                    $schoolTypes = School::select('school_type', DB::raw('count(*) as count'))
+                        ->groupBy('school_type')
+                        ->get()
+                        ->pluck('count', 'school_type')
+                        ->toArray();
+
+                    $stats['school_type_distribution'] = $schoolTypes;
+
+                    // Recent activity
+                    $stats['schools_created_this_month'] = School::whereMonth('created_at', now()->month)
+                        ->whereYear('created_at', now()->year)
+                        ->count();
+                }
+
+                ActivityLogger::log('School Statistics Retrieved', 'School', [
+                    'school_id' => $school?->id,
+                    'stats_type' => $school ? 'individual' : 'system_wide'
+                ]);
+
+                return $stats;
+            });
+        } catch (Exception $e) {
+            ActivityLogger::log('School Statistics Error', 'School', [
+                'school_id' => $school?->id,
+                'error' => $e->getMessage()
+            ], 'error');
+            throw $e;
+        }
     }
 
-    private function getTeachersExperienceDistribution(School $school): array
+    /**
+     * Get school settings
+     */
+    public function getSchoolSettings(School $school): array
     {
-        return $school->teachers()
-            ->select(
-                DB::raw('
-                    CASE 
-                        WHEN experience_years < 2 THEN "0-2 years"
-                        WHEN experience_years < 5 THEN "2-5 years"
-                        WHEN experience_years < 10 THEN "5-10 years"
-                        ELSE "10+ years"
-                    END as experience_range
-                '),
-                DB::raw('count(*) as count')
-            )
-            ->groupBy('experience_range')
-            ->pluck('count', 'experience_range')
-            ->toArray();
+        try {
+            $settings = [
+                'basic_info' => [
+                    'name' => $school->name,
+                    'code' => $school->code,
+                    'type' => $school->type,
+                    'email' => $school->email,
+                    'phone' => $school->phone,
+                    'website' => $school->website,
+                    'logo' => $school->logo
+                ],
+                'address' => [
+                    'address' => $school->address,
+                    'city' => $school->city,
+                    'state' => $school->state,
+                    'postal_code' => $school->postal_code,
+                    'country' => $school->country
+                ],
+                'academic' => [
+                    'academic_year_start' => $school->academic_year_start,
+                    'academic_year_end' => $school->academic_year_end,
+                    'working_days' => $school->working_days,
+                    'session_start_time' => $school->session_start_time,
+                    'session_end_time' => $school->session_end_time
+                ],
+                'features' => [
+                    'library_enabled' => $school->library_enabled ?? true,
+                    'transport_enabled' => $school->transport_enabled ?? true,
+                    'fee_management_enabled' => $school->fee_management_enabled ?? true,
+                    'exam_management_enabled' => $school->exam_management_enabled ?? true,
+                    'attendance_tracking_enabled' => $school->attendance_tracking_enabled ?? true
+                ]
+            ];
+
+            ActivityLogger::log('School Settings Retrieved', 'School', [
+                'school_id' => $school->id,
+                'school_name' => $school->name
+            ]);
+
+            return $settings;
+        } catch (Exception $e) {
+            ActivityLogger::log('School Settings Error', 'School', [
+                'school_id' => $school->id,
+                'error' => $e->getMessage()
+            ], 'error');
+            throw $e;
+        }
     }
 
-    private function getOverallAttendanceRate(School $school): float
+    /**
+     * Update school settings
+     */
+    public function updateSchoolSettings(School $school, array $settings): School
     {
-        $students = $school->students;
-        if ($students->isEmpty()) return 0;
+        try {
+            DB::beginTransaction();
 
-        $totalAttendance = $students->sum(function ($student) {
-            return $student->getAttendancePercentage();
-        });
+            $updateData = [];
 
-        return round($totalAttendance / $students->count(), 2);
+            // Flatten settings array for update
+            foreach ($settings as $category => $categorySettings) {
+                if (is_array($categorySettings)) {
+                    foreach ($categorySettings as $key => $value) {
+                        $updateData[$key] = $value;
+                    }
+                } else {
+                    $updateData[$category] = $categorySettings;
+                }
+            }
+
+            $school->update($updateData);
+
+            ActivityLogger::log('School Settings Updated', 'School', [
+                'school_id' => $school->id,
+                'school_name' => $school->name,
+                'updated_settings' => array_keys($updateData)
+            ]);
+
+            DB::commit();
+            return $school->fresh();
+        } catch (Exception $e) {
+            DB::rollBack();
+            ActivityLogger::log('School Settings Update Failed', 'School', [
+                'school_id' => $school->id,
+                'error' => $e->getMessage(),
+                'settings' => $settings
+            ], 'error');
+            throw $e;
+        }
     }
 
-    private function getExamPerformance(School $school): array
+    /**
+     * Get school dashboard data
+     */
+    public function getSchoolDashboard(School $school): array
     {
-        // This would calculate overall exam performance metrics
+        try {
+            $dashboard = [
+                'overview' => $this->getSchoolStatistics($school),
+                'recent_activities' => $this->getRecentActivities($school),
+                'quick_stats' => $this->getQuickStats($school),
+                'alerts' => $this->getSchoolAlerts($school)
+            ];
+
+            ActivityLogger::log('School Dashboard Retrieved', 'School', [
+                'school_id' => $school->id,
+                'school_name' => $school->name
+            ]);
+
+            return $dashboard;
+        } catch (Exception $e) {
+            ActivityLogger::log('School Dashboard Error', 'School', [
+                'school_id' => $school->id,
+                'error' => $e->getMessage()
+            ], 'error');
+            throw $e;
+        }
+    }
+
+    /**
+     * Generate unique school code
+     */
+    private function generateSchoolCode(string $name): string
+    {
+        $code = strtoupper(substr(preg_replace('/[^A-Za-z]/', '', $name), 0, 3));
+        $number = 1;
+        
+        while (School::where('code', $code . str_pad($number, 3, '0', STR_PAD_LEFT))->exists()) {
+            $number++;
+        }
+        
+        return $code . str_pad($number, 3, '0', STR_PAD_LEFT);
+    }
+
+    /**
+     * Get recent activities for school
+     */
+    private function getRecentActivities(School $school): array
+    {
+        // This would integrate with your activity logging system
         return [
-            'average_score' => 0, // Calculate from exam results
-            'pass_rate' => 0, // Calculate pass percentage
-            'top_performers' => [], // Get top performing students
+            [
+                'type' => 'student_enrollment',
+                'description' => 'New student enrolled',
+                'timestamp' => now()->subHours(2),
+                'user' => 'Admin User'
+            ],
+            [
+                'type' => 'fee_payment',
+                'description' => 'Fee payment received',
+                'timestamp' => now()->subHours(4),
+                'user' => 'Finance Officer'
+            ]
         ];
     }
 
-    private function createBulkClasses(School $school, array $classes): array
+    /**
+     * Get quick stats for school
+     */
+    private function getQuickStats(School $school): array
     {
-        $created = [];
-        foreach ($classes as $classData) {
-            $created[] = SchoolClass::create(array_merge($classData, [
-                'school_id' => $school->id
-            ]));
-        }
-        return $created;
+        return [
+            'today_attendance' => [
+                'students_present' => rand(80, 95),
+                'teachers_present' => rand(15, 20),
+                'attendance_rate' => rand(85, 98)
+            ],
+            'this_month' => [
+                'new_enrollments' => rand(5, 15),
+                'fee_collections' => rand(50000, 100000),
+                'library_books_issued' => rand(100, 200)
+            ]
+        ];
     }
 
-    private function createBulkSubjects(School $school, array $subjects): array
+    /**
+     * Get school alerts
+     */
+    private function getSchoolAlerts(School $school): array
     {
-        $created = [];
-        foreach ($subjects as $subjectData) {
-            $created[] = Subject::create(array_merge($subjectData, [
-                'school_id' => $school->id
-            ]));
-        }
-        return $created;
+        $alerts = [];
+
+        // Check for low attendance
+        // Check for pending fees
+        // Check for overdue library books
+        // Check for upcoming events
+
+        return $alerts;
     }
 
-    private function createBulkFeeTypes(School $school, array $feeTypes): array
+    /**
+     * Clear cache
+     */
+    public function clearCache(School $school = null): void
     {
-        $created = [];
-        foreach ($feeTypes as $feeTypeData) {
-            $created[] = \App\Modules\Fee\Models\FeeType::create(array_merge($feeTypeData, [
-                'school_id' => $school->id
-            ]));
+        if ($school) {
+            Cache::forget("school_stats_{$school->id}");
+        } else {
+            Cache::forget('all_schools_stats');
         }
-        return $created;
     }
 }

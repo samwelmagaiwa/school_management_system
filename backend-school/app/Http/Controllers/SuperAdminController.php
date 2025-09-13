@@ -3,10 +3,8 @@
 namespace App\Http\Controllers;
 
 use App\Http\Controllers\Controller;
-use App\Modules\SuperAdmin\Services\SuperAdminService;
-use App\Modules\SuperAdmin\Models\Permission;
-use App\Modules\User\Models\User;
-use App\Modules\School\Models\School;
+use App\Models\User;
+use App\Models\School;
 use App\Services\ActivityLogger;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
@@ -17,11 +15,8 @@ use Illuminate\Validation\Rule;
 
 class SuperAdminController extends Controller
 {
-    protected SuperAdminService $superAdminService;
-
-    public function __construct(SuperAdminService $superAdminService)
+    public function __construct()
     {
-        $this->superAdminService = $superAdminService;
         $this->middleware('auth:sanctum');
         $this->middleware(function ($request, $next) {
             if (!$request->user()->isSuperAdmin()) {
@@ -40,7 +35,13 @@ class SuperAdminController extends Controller
     public function getDashboardStats(Request $request): JsonResponse
     {
         try {
-            $stats = $this->superAdminService->getDashboardStats();
+            // Basic dashboard stats without service dependency
+            $stats = [
+                'total_users' => User::count(),
+                'total_schools' => School::count(),
+                'active_users' => User::where('status', true)->count(),
+                'active_schools' => School::where('status', true)->count()
+            ];
 
             ActivityLogger::log('SuperAdmin Dashboard Viewed', 'Dashboard', [
                 'user_id' => $request->user()->id,
@@ -289,6 +290,85 @@ class SuperAdminController extends Controller
 
             $users = $query->latest()->paginate($request->per_page ?? 15);
 
+            // Transform user data to include frontend-expected properties
+            $users->getCollection()->transform(function ($user) {
+                // Handle case where user might be null or undefined
+                if (!$user) {
+                    return [
+                        'id' => null,
+                        'first_name' => '',
+                        'last_name' => '',
+                        'email' => '',
+                        'role' => '',
+                        'status' => false,
+                        'can_reset_password' => false,
+                        'can_delete' => false,
+                        'can_edit' => false,
+                        'can_change_role' => false,
+                        'can_change_status' => false,
+                        'can_resend_invitation' => false,
+                        'can_login_as' => false,
+                        'full_name' => '',
+                        'role_label' => '',
+                        'status_label' => 'Inactive',
+                        'status_badge_class' => 'bg-danger',
+                        'created_at_formatted' => '',
+                        'updated_at_formatted' => '',
+                        'last_login_formatted' => 'Never',
+                        'school_name' => 'No School Assigned',
+                        'school_code' => null,
+                        'avatar_url' => null,
+                        'avatar_initials' => 'NN'
+                    ];
+                }
+                
+                // Add computed properties for frontend
+                $userData = $user->toArray();
+                
+                // Add permission-related properties with error handling
+                try {
+                    $userData['can_reset_password'] = $this->canResetPassword($user);
+                    $userData['can_delete'] = $this->canDeleteUser($user);
+                    $userData['can_edit'] = $this->canEditUser($user);
+                    $userData['can_change_role'] = $this->canChangeRole($user);
+                    $userData['can_change_status'] = $this->canChangeStatus($user);
+                    $userData['can_resend_invitation'] = $this->canResendInvitation($user);
+                    $userData['can_login_as'] = $this->canLoginAs($user);
+                } catch (\Exception $e) {
+                    // Fallback permissions if there's an error
+                    $userData['can_reset_password'] = false;
+                    $userData['can_delete'] = false;
+                    $userData['can_edit'] = false;
+                    $userData['can_change_role'] = false;
+                    $userData['can_change_status'] = false;
+                    $userData['can_resend_invitation'] = false;
+                    $userData['can_login_as'] = false;
+                }
+                
+                // Add display properties with safe property access
+                $userData['full_name'] = trim(($user->first_name ?? '') . ' ' . ($user->last_name ?? ''));
+                $userData['role_label'] = $this->getRoleLabel($user->role ?? '');
+                $userData['status_label'] = ($user->status ?? false) ? 'Active' : 'Inactive';
+                $userData['status_badge_class'] = ($user->status ?? false) ? 'bg-success' : 'bg-danger';
+                
+                // Add formatted dates with safe property access
+                $userData['created_at_formatted'] = $user->created_at ? $user->created_at->format('M j, Y g:i A') : 'Not Available';
+                $userData['updated_at_formatted'] = $user->updated_at ? $user->updated_at->format('M j, Y g:i A') : 'Not Available';
+                $userData['last_login_formatted'] = $user->last_login_at ? $user->last_login_at->format('M j, Y g:i A') : 'Never';
+                
+                // Add school information with safe property access
+                $userData['school_name'] = ($user->school && $user->school->name) ? $user->school->name : 'No School Assigned';
+                $userData['school_code'] = ($user->school && $user->school->code) ? $user->school->code : null;
+                
+                // Add avatar/profile picture URL with safe property access
+                $userData['avatar_url'] = ($user->profile_picture ?? false) ? url('storage/' . $user->profile_picture) : null;
+                $firstName = $user->first_name ?? 'N';
+                $lastName = $user->last_name ?? 'N';
+                $userData['avatar_initials'] = strtoupper(substr($firstName, 0, 1) . substr($lastName, 0, 1));
+                
+                return $userData;
+            });
+
             return response()->json([
                 'success' => true,
                 'data' => $users
@@ -412,59 +492,135 @@ class SuperAdminController extends Controller
     }
 
     /**
-     * Get database size (simplified - actual implementation may vary by database)
+     * Helper method to determine if a user's password can be reset
      */
-    private function getDatabaseSize(): string
+    private function canResetPassword(User $user): bool
     {
-        try {
-            $result = DB::select("SELECT ROUND(SUM(data_length + index_length) / 1024 / 1024, 1) AS 'size_mb' FROM information_schema.TABLES WHERE table_schema = ?", [config('database.connections.mysql.database')]);
-            return ($result[0]->size_mb ?? '0') . ' MB';
-        } catch (\Exception $e) {
-            return 'Unknown';
+        $currentUser = auth()->user();
+        
+        if ($currentUser->role === 'SuperAdmin') {
+            return true;
         }
+        
+        return $user->role !== 'SuperAdmin';
     }
 
     /**
-     * Get total records count across main tables
+     * Helper method to determine if a user can be deleted
      */
-    private function getTotalRecords(): int
+    private function canDeleteUser(User $user): bool
     {
-        return User::count() + 
-               School::count() + 
-               Student::count() + 
-               Teacher::count() + 
-               SchoolClass::count() + 
-               Subject::count();
+        $currentUser = auth()->user();
+        
+        // Can't delete yourself
+        if ($user->id === $currentUser->id) {
+            return false;
+        }
+        
+        // SuperAdmins can delete anyone except other SuperAdmins (unless current user is also SuperAdmin)
+        if ($currentUser->role === 'SuperAdmin') {
+            return $user->role !== 'SuperAdmin' || $currentUser->role === 'SuperAdmin';
+        }
+        
+        return false;
     }
 
     /**
-     * Update user status (activate/deactivate)
+     * Helper method to determine if a user can be edited
      */
-    public function updateUserStatus(Request $request, $id): JsonResponse
+    private function canEditUser(User $user): bool
     {
-        try {
-            $user = User::findOrFail($id);
-            $user->status = $request->status;
-            $user->save();
-
-            ActivityLogger::log('User Status Updated', 'User', [
-                'user_id' => $user->id,
-                'new_status' => $user->status ? 'Active' : 'Inactive',
-                'updated_by' => $request->user()->id
-            ]);
-
-            return response()->json([
-                'success' => true,
-                'message' => 'User status updated successfully',
-                'data' => $user
-            ]);
-
-        } catch (\Exception $e) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Failed to update user status',
-                'error' => config('app.debug') ? $e->getMessage() : 'Internal server error'
-            ], 500);
+        $currentUser = auth()->user();
+        
+        if ($currentUser->role === 'SuperAdmin') {
+            return true;
         }
+        
+        return false;
+    }
+
+    /**
+     * Helper method to determine if a user's role can be changed
+     */
+    private function canChangeRole(User $user): bool
+    {
+        $currentUser = auth()->user();
+        
+        if ($currentUser->role === 'SuperAdmin') {
+            return $user->id !== $currentUser->id; // Can't change own role
+        }
+        
+        return false;
+    }
+
+    /**
+     * Helper method to determine if a user's status can be changed
+     */
+    private function canChangeStatus(User $user): bool
+    {
+        $currentUser = auth()->user();
+        
+        // Can't change your own status
+        if ($user->id === $currentUser->id) {
+            return false;
+        }
+        
+        if ($currentUser->role === 'SuperAdmin') {
+            return true;
+        }
+        
+        return false;
+    }
+
+    /**
+     * Helper method to determine if an invitation can be resent
+     */
+    private function canResendInvitation(User $user): bool
+    {
+        $currentUser = auth()->user();
+        
+        if ($currentUser->role === 'SuperAdmin') {
+            return $user->email_verified_at === null;
+        }
+        
+        return false;
+    }
+
+    /**
+     * Helper method to determine if current user can login as this user
+     */
+    private function canLoginAs(User $user): bool
+    {
+        $currentUser = auth()->user();
+        
+        // Can't login as yourself
+        if ($user->id === $currentUser->id) {
+            return false;
+        }
+        
+        // Only SuperAdmins can login as other users
+        if ($currentUser->role === 'SuperAdmin') {
+            return $user->role !== 'SuperAdmin'; // Can't login as other SuperAdmins
+        }
+        
+        return false;
+    }
+
+    /**
+     * Helper method to get role label
+     */
+    private function getRoleLabel(string $role): string
+    {
+        $roleLabels = [
+            'SuperAdmin' => 'Super Administrator',
+            'Admin' => 'School Administrator',
+            'Teacher' => 'Teacher',
+            'Student' => 'Student',
+            'Parent' => 'Parent',
+            'HR' => 'Human Resources',
+            'Accountant' => 'Accountant'
+        ];
+        
+        return $roleLabels[$role] ?? $role;
     }
 }

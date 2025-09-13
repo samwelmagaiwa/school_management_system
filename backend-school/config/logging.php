@@ -127,52 +127,46 @@ return [
             'path' => storage_path('logs/laravel.log'),
         ],
 
-        // Custom channels for activity logging
+        // Custom channels for specific needs (all point to laravel.log)
         'activity' => [
-            'driver' => 'daily',
-            'path' => storage_path('logs/activity.log'),
+            'driver' => 'single',
+            'path' => storage_path('logs/laravel.log'),
             'level' => env('LOG_LEVEL', 'info'),
-            'days' => env('LOG_ACTIVITY_DAYS', 30),
             'replace_placeholders' => true,
         ],
 
         'auth' => [
-            'driver' => 'daily',
-            'path' => storage_path('logs/auth.log'),
+            'driver' => 'single',
+            'path' => storage_path('logs/laravel.log'),
             'level' => env('LOG_LEVEL', 'info'),
-            'days' => env('LOG_AUTH_DAYS', 60),
             'replace_placeholders' => true,
         ],
 
         'schools' => [
-            'driver' => 'daily',
-            'path' => storage_path('logs/schools.log'),
+            'driver' => 'single',
+            'path' => storage_path('logs/laravel.log'),
             'level' => env('LOG_LEVEL', 'info'),
-            'days' => env('LOG_SCHOOLS_DAYS', 30),
             'replace_placeholders' => true,
         ],
 
         'users' => [
-            'driver' => 'daily',
-            'path' => storage_path('logs/users.log'),
+            'driver' => 'single',
+            'path' => storage_path('logs/laravel.log'),
             'level' => env('LOG_LEVEL', 'info'),
-            'days' => env('LOG_USERS_DAYS', 30),
             'replace_placeholders' => true,
         ],
 
         'students' => [
-            'driver' => 'daily',
-            'path' => storage_path('logs/students.log'),
+            'driver' => 'single',
+            'path' => storage_path('logs/laravel.log'),
             'level' => env('LOG_LEVEL', 'info'),
-            'days' => env('LOG_STUDENTS_DAYS', 30),
             'replace_placeholders' => true,
         ],
 
         'security' => [
-            'driver' => 'daily',
-            'path' => storage_path('logs/security.log'),
+            'driver' => 'single',
+            'path' => storage_path('logs/laravel.log'),
             'level' => env('LOG_LEVEL', 'warning'),
-            'days' => env('LOG_SECURITY_DAYS', 90),
             'replace_placeholders' => true,
         ],
 

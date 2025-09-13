@@ -34,22 +34,17 @@ class ActivityLogger
         ];
 
         $message = sprintf(
-            '[%s] User %s (%s) performed %s in %s module',
+            '[%s] [%s] User %s (%s) performed %s in %s module',
             $logData['timestamp'],
+            strtoupper($level),
             $user?->email ?? 'Guest',
             $user?->role ?? 'Unknown',
             $action,
             $module
         );
 
-        $channel = $channel ?? strtolower($module);
-        
-        Log::channel($channel)->log($level, $message, $logData);
-        
-        // Also log to general activity log
-        if ($channel !== 'activity') {
-            Log::channel('activity')->log($level, $message, $logData);
-        }
+        // Always log to the default Laravel log channel (laravel.log)
+        Log::log($level, $message, $logData);
     }
 
     /**
@@ -123,7 +118,8 @@ class ActivityLogger
             $user?->email ?? 'Guest'
         );
 
-        Log::channel('activity')->info($message, $logData);
+        // Log to the default Laravel log channel (laravel.log)
+        Log::info($message, $logData);
     }
 
     /**
@@ -204,9 +200,9 @@ class ActivityLogger
     /**
      * Get log statistics
      */
-    public static function getLogStats(string $channel = 'activity', int $days = 7): array
+    public static function getLogStats(string $module = null, int $days = 7): array
     {
-        $logFile = storage_path("logs/{$channel}.log");
+        $logFile = storage_path('logs/laravel.log');
         
         if (!file_exists($logFile)) {
             return [
@@ -214,6 +210,7 @@ class ActivityLogger
                 'error_count' => 0,
                 'warning_count' => 0,
                 'info_count' => 0,
+                'debug_count' => 0,
             ];
         }
 
@@ -221,11 +218,21 @@ class ActivityLogger
         $content = file_get_contents($logFile);
         $lines = explode("\n", $content);
         
+        // Filter by module if specified
+        if ($module) {
+            $filteredLines = array_filter($lines, function($line) use ($module) {
+                return strpos($line, "in {$module} module") !== false;
+            });
+            $lines = $filteredLines;
+            $content = implode("\n", $lines);
+        }
+        
         $stats = [
             'total_entries' => count(array_filter($lines)),
             'error_count' => substr_count($content, '.ERROR:'),
             'warning_count' => substr_count($content, '.WARNING:'),
             'info_count' => substr_count($content, '.INFO:'),
+            'debug_count' => substr_count($content, '.DEBUG:'),
         ];
 
         return $stats;
