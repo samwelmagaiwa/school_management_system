@@ -5,10 +5,10 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\SoftDeletes;
-use App\Models$1;
-use App\Models$1;
-use App\Models$1;
-use App\Models$1;
+use App\Models\User;
+use App\Models\School;
+use App\Models\Subject;
+use App\Models\SchoolClass;
 
 class Teacher extends Model
 {

@@ -30,61 +30,67 @@ class MenuService
     }
 
     /**
-     * Get permissions based on user role
+     * Get permissions based on user role using the comprehensive permissions system
      */
     public function getPermissionsByRole(string $role): array
     {
+        // Use the comprehensive ProjectPermissionService
+        $permissionService = app(\App\Services\ProjectPermissionService::class);
+        $permissions = $permissionService->getPermissionsForRole($role);
+        
+        // If using comprehensive system, return permission slugs
+        if (!empty($permissions)) {
+            return collect($permissions)->pluck('slug')->toArray();
+        }
+        
+        // Fallback to legacy permissions for backward compatibility
         switch ($role) {
             case 'SuperAdmin':
                 return ['*']; // Full access
             case 'Admin':
                 return [
-                    'manage_students',
-                    'manage_teachers',
-                    'manage_classes',
-                    'manage_subjects',
-                    'view_reports',
-                    'manage_attendance',
-                    'manage_exams',
-                    'manage_fees',
+                    'dashboard.access', 'dashboard.view_stats',
+                    'student.manage', 'teacher.manage', 'class.manage', 'subject.manage',
+                    'attendance.manage', 'exam.manage', 'fee.manage',
+                    'report.academic', 'report.financial', 'report.attendance',
+                    'user.create', 'user.edit', 'user.view',
+                    'school.configure', 'school.manage_settings'
                 ];
             case 'Teacher':
                 return [
-                    'view_students',
-                    'manage_attendance',
-                    'manage_grades',
-                    'view_classes',
-                    'create_assignments',
+                    'dashboard.access',
+                    'student.view', 'student.view_grades', 'student.manage_attendance',
+                    'class.view', 'subject.view',
+                    'attendance.mark', 'attendance.view', 'attendance.bulk_mark',
+                    'exam.view', 'exam.create', 'exam.grade',
+                    'library.view', 'library.issue_books'
                 ];
             case 'Student':
                 return [
-                    'view_profile',
-                    'view_grades',
-                    'view_attendance',
-                    'view_assignments',
-                    'view_timetable',
+                    'dashboard.access',
+                    'student.view', 'student.view_grades',
+                    'attendance.view', 'exam.view', 'fee.view',
+                    'library.view', 'transport.view'
                 ];
             case 'Parent':
                 return [
-                    'view_child_profile',
-                    'view_child_grades',
-                    'view_child_attendance',
-                    'view_child_assignments',
-                    'communicate_teachers',
+                    'dashboard.access',
+                    'student.view', 'student.view_grades',
+                    'attendance.view', 'exam.view', 'fee.view', 'fee.collect',
+                    'transport.view'
                 ];
             case 'HR':
                 return [
-                    'manage_staff',
-                    'manage_payroll',
-                    'view_staff_reports',
-                    'manage_leaves',
+                    'dashboard.access', 'dashboard.view_stats',
+                    'user.view', 'user.create', 'user.edit',
+                    'teacher.view', 'teacher.create', 'teacher.edit',
+                    'hr.manage_payroll', 'hr.manage_leave', 'hr.performance_review'
                 ];
             case 'Accountant':
                 return [
-                    'manage_fees',
-                    'view_financial_reports',
-                    'manage_payments',
-                    'generate_invoices',
+                    'dashboard.access', 'dashboard.view_stats',
+                    'student.view', 'fee.manage', 'fee.collect', 'fee.generate_invoices',
+                    'report.financial', 'report.export'
                 ];
             default:
                 return [];

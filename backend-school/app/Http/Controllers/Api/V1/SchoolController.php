@@ -10,6 +10,7 @@ use App\Http\Resources\SchoolResource;
 use App\Services\SchoolService;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Support\Facades\Schema;
 
 class SchoolController extends Controller
 {
@@ -40,7 +41,8 @@ class SchoolController extends Controller
         }
 
         if ($request->filled('status')) {
-            $query->where('is_active', $request->boolean('status'));
+            $statusColumn = Schema::hasColumn('schools', 'is_active') ? 'is_active' : 'status';
+            $query->where($statusColumn, $request->boolean('status'));
         }
 
         if ($request->filled('subscription_status')) {

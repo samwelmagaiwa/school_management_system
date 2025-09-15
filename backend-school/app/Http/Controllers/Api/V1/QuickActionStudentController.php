@@ -41,7 +41,7 @@ class QuickActionStudentController extends Controller
 
         // Get schools (SuperAdmin only)
         if ($user->isSuperAdmin()) {
-            $data['schools'] = School::where('status', true)
+            $data['schools'] = School::where('is_active', true)
                 ->select('id', 'name', 'code')
                 ->orderBy('name')
                 ->get();

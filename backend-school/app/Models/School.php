@@ -27,10 +27,17 @@ class School extends Model
         'email',
         'website',
         'logo',
-        'established_date',
+        'established_year',
         'principal_name',
+        'principal_email',
+        'principal_phone',
         'description',
-        'status'
+        'board_affiliation',
+        'school_type',
+        'registration_number',
+        'tax_id',
+        'settings',
+        'is_active'
     ];
 
     protected $casts = [
@@ -38,6 +45,18 @@ class School extends Model
         'settings' => 'array',
         'is_active' => 'boolean'
     ];
+
+    // Add accessor for status to maintain compatibility
+    public function getStatusAttribute()
+    {
+        return $this->is_active;
+    }
+
+    // Add mutator for status to maintain compatibility
+    public function setStatusAttribute($value)
+    {
+        $this->attributes['is_active'] = $value;
+    }
 
     protected $dates = ['deleted_at'];
 
@@ -56,6 +75,22 @@ class School extends Model
     public function scopeActive($query)
     {
         return $query->where('is_active', true);
+    }
+
+    public function scopeByStatus($query, $status)
+    {
+        if ($status !== null && $status !== '') {
+            return $query->where('is_active', (bool) $status);
+        }
+        return $query;
+    }
+
+    public function scopeBySchoolType($query, $type)
+    {
+        if ($type) {
+            return $query->where('school_type', $type);
+        }
+        return $query;
     }
 
     public function scopeSearch($query, $search)

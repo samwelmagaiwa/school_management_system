@@ -22,12 +22,16 @@ return Application::configure(basePath: dirname(__DIR__))
         
         $middleware->api(append: [
             \App\Http\Middleware\LogActivity::class,
+            \App\Http\Middleware\SecurityHeadersMiddleware::class,
         ]);
         
         $middleware->alias([
             'verified' => \Illuminate\Auth\Middleware\EnsureEmailIsVerified::class,
             'log.activity' => \App\Http\Middleware\LogActivity::class,
             'role' => \App\Http\Middleware\RoleMiddleware::class,
+            'superadmin' => \App\Http\Middleware\SuperAdminMiddleware::class,
+            'advanced.rate.limit' => \App\Http\Middleware\AdvancedRateLimitMiddleware::class,
+            'security.headers' => \App\Http\Middleware\SecurityHeadersMiddleware::class,
         ]);
         
         $middleware->validateCsrfTokens(except: [

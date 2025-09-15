@@ -264,7 +264,23 @@ class User extends Authenticatable
         return [$this->role];
     }
 
-    // Simple permission checking methods
+    // Permission relationships
+    public function permissions()
+    {
+        // Get permissions through role
+        $roleModel = $this->getRoleModel();
+        if (!$roleModel) {
+            return collect([]);
+        }
+        return $roleModel->rolePermissions();
+    }
+    
+    public function roles()
+    {
+        return $this->hasMany(Role::class, 'slug', 'role');
+    }
+
+    // Enhanced permission checking methods
     public function hasPermission($permission)
     {
         // SuperAdmin has all permissions
@@ -272,8 +288,66 @@ class User extends Authenticatable
             return true;
         }
         
-        // Implement basic permission logic as needed
+        // Use ProjectPermissionService for comprehensive permission checking
+        $permissionService = app(\App\Services\ProjectPermissionService::class);
+        return $permissionService->userHasPermission($this, $permission);
+    }
+    
+    /**
+     * Check if user has any of the given permissions
+     */
+    public function hasAnyPermission(array $permissions): bool
+    {
+        foreach ($permissions as $permission) {
+            if ($this->hasPermission($permission)) {
+                return true;
+            }
+        }
         return false;
+    }
+    
+    /**
+     * Check if user has all of the given permissions
+     */
+    public function hasAllPermissions(array $permissions): bool
+    {
+        foreach ($permissions as $permission) {
+            if (!$this->hasPermission($permission)) {
+                return false;
+            }
+        }
+        return true;
+    }
+    
+    /**
+     * Get all permissions for this user
+     */
+    public function getAllPermissions(): array
+    {
+        $permissionService = app(\App\Services\ProjectPermissionService::class);
+        return $permissionService->getPermissionsForRole($this->role);
+    }
+    
+    /**
+     * Get user's role model
+     */
+    public function getRoleModel()
+    {
+        return \App\Models\Role::where('slug', $this->role)->first();
+    }
+    
+    /**
+     * Check if user can access a specific module
+     */
+    public function canAccessModule(string $module): bool
+    {
+        $roleModel = $this->getRoleModel();
+        
+        if (!$roleModel) {
+            return false;
+        }
+        
+        return $roleModel->hasModuleAccess($module);
     }
     
 }

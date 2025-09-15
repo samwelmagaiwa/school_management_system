@@ -12,6 +12,8 @@ class DatabaseSeeder extends Seeder
     public function run(): void
     {
         $this->call([
+            SafeSchoolSeeder::class, // Use safe version to avoid foreign key issues
+            ComprehensivePermissionsSeeder::class, // Initialize permissions system
             SchoolManagementSeeder::class,
             UserSeeder::class,
         ]);

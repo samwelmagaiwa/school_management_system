@@ -37,6 +37,7 @@ class StoreSchoolRequest extends FormRequest
             'principal_phone' => 'nullable|string|max:20',
             
             // Additional Information
+            'established_year_date' => 'nullable|date|before_or_equal:now',
             'established_year' => 'nullable|integer|min:1800|max:' . date('Y'),
             'board_affiliation' => 'nullable|string|max:255',
             'registration_number' => 'nullable|string|max:255',
@@ -68,6 +69,8 @@ class StoreSchoolRequest extends FormRequest
             'website.url' => 'Please provide a valid website URL',
             'address.max' => 'Address cannot exceed 500 characters',
             'principal_email.email' => 'Please provide a valid principal email address',
+            'established_year_date.date' => 'Please provide a valid establishment date',
+            'established_year_date.before_or_equal' => 'Establishment date cannot be in the future',
             'established_year.integer' => 'Established year must be a valid year',
             'established_year.min' => 'Established year cannot be before 1800',
             'established_year.max' => 'Established year cannot be in the future',
@@ -92,10 +95,22 @@ class StoreSchoolRequest extends FormRequest
             $data['is_active'] = filter_var($this->is_active, FILTER_VALIDATE_BOOLEAN);
         }
         
+        // Handle established_year date conversion
+        if ($this->has('established_year') && $this->established_year) {
+            try {
+                // If it's a date string, extract the year
+                $date = \Carbon\Carbon::parse($this->established_year);
+                $data['established_year_date'] = $this->established_year; // Keep original date for validation
+                $data['established_year'] = $date->year; // Extract year for storage
+            } catch (\Exception $e) {
+                // If parsing fails, keep original value for validation error
+            }
+        }
+        
         // Convert empty strings to null for optional fields
         $optionalFields = [
             'code', 'phone', 'website', 'address', 'principal_name', 
-            'principal_email', 'principal_phone', 'established_year',
+            'principal_email', 'principal_phone',
             'board_affiliation', 'registration_number', 'description'
         ];
         

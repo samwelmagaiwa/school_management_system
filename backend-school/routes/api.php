@@ -68,12 +68,7 @@ Route::get('/test', function () {
                 'schools' => '/api/v1/schools',
                 'superadmin' => '/api/v1/superadmin/*'
             ],
-            'superadmin' => [
-                'dashboard' => '/api/superadmin/dashboard',
-                'users' => '/api/superadmin/users',
-                'schools' => '/api/superadmin/schools',
-                'reports' => '/api/superadmin/reports'
-            ]
+            'note' => 'Legacy routes have been moved to V1. Use /api/v1/ endpoints.'
         ]
     ]);
 });
@@ -92,26 +87,15 @@ Route::prefix('auth')->name('auth.')->group(function () {
     });
 });
 
-// Legacy SuperAdmin routes (for backward compatibility)
-Route::prefix('superadmin')->name('superadmin.')->middleware('auth:sanctum')->group(function () {
-    // Dashboard and Statistics
-    Route::get('dashboard', [SuperAdminController::class, 'getDashboardStats'])->name('dashboard');
-    Route::get('reports', [SuperAdminController::class, 'getSystemReports'])->name('reports');
-    
-    // Schools Management
-    Route::get('schools', [SuperAdminController::class, 'getSchools'])->name('schools.index');
-    Route::get('schools/statistics', [SuperAdminController::class, 'getSchoolStatistics'])->name('schools.statistics');
-    Route::post('schools', [SuperAdminController::class, 'createSchool'])->name('schools.store');
-    Route::put('schools/{id}', [SuperAdminController::class, 'updateSchool'])->name('schools.update');
-    Route::delete('schools/{id}', [SuperAdminController::class, 'deleteSchool'])->name('schools.destroy');
-    
-    // Users Management
-    Route::get('users', [SuperAdminController::class, 'getAllUsers'])->name('users.index');
-    Route::post('users', [SuperAdminController::class, 'createUser'])->name('users.store');
-    Route::put('users/{id}/status', [SuperAdminController::class, 'updateUserStatus'])->name('users.status');
-    Route::get('users/statistics', [SuperAdminController::class, 'getUserStatistics'])->name('users.statistics');
-    Route::get('users/schools', [SuperAdminController::class, 'getUserSchools'])->name('users.schools');
-    Route::get('users/roles', [SuperAdminController::class, 'getUserRoles'])->name('users.roles');
+// Legacy routes redirect to V1 (for backward compatibility)
+Route::prefix('superadmin')->middleware(['auth:sanctum'])->group(function () {
+    Route::get('{any}', function ($path) {
+        return response()->json([
+            'message' => 'This endpoint has been moved. Please use the V1 API.',
+            'redirect_to' => "/api/v1/superadmin/{$path}",
+            'deprecated' => true
+        ], 301);
+    })->where('any', '.*');
 });
 
 // API Version 1 Routes
@@ -299,8 +283,29 @@ Route::prefix('v1')->name('api.v1.')->group(function () {
             Route::delete('{idCard}', [IdCardController::class, 'destroy'])->name('destroy');
         });
         
+        // Permissions & Roles Management
+        Route::prefix('permissions')->name('permissions.')->group(function () {
+            Route::get('user', [\App\Http\Controllers\Api\V1\PermissionController::class, 'userPermissions'])->name('user');
+            Route::post('check', [\App\Http\Controllers\Api\V1\PermissionController::class, 'checkPermission'])->name('check');
+            Route::post('bulk-check', [\App\Http\Controllers\Api\V1\PermissionController::class, 'bulkCheckPermissions'])->name('bulk-check');
+            Route::get('capabilities', [\App\Http\Controllers\Api\V1\PermissionController::class, 'userCapabilities'])->name('capabilities');
+            Route::get('all', [\App\Http\Controllers\Api\V1\PermissionController::class, 'allPermissions'])->name('all');
+            Route::get('module/{module}', [\App\Http\Controllers\Api\V1\PermissionController::class, 'modulePermissions'])->name('module');
+        });
+        
+        Route::prefix('roles')->name('roles.')->group(function () {
+            Route::get('/', [\App\Http\Controllers\Api\V1\PermissionController::class, 'allRoles'])->name('index');
+            Route::get('{role}/permissions', [\App\Http\Controllers\Api\V1\PermissionController::class, 'rolePermissions'])->name('permissions');
+        });
+        
+        Route::prefix('system')->name('system.')->group(function () {
+            Route::get('stats', [\App\Http\Controllers\Api\V1\PermissionController::class, 'systemStats'])->name('stats');
+        });
+        
         // SuperAdmin - System-wide management (SuperAdmin only)
-        Route::prefix('superadmin')->name('superadmin.')->group(function () {
+        Route::prefix('superadmin')->name('superadmin.')
+            ->middleware(['superadmin', 'advanced.rate.limit:30,1'])
+            ->group(function () {
             // Dashboard and Statistics
             Route::get('dashboard', [SuperAdminController::class, 'getDashboardStats'])->name('dashboard');
             Route::get('reports', [SuperAdminController::class, 'getSystemReports'])->name('reports');
@@ -308,6 +313,7 @@ Route::prefix('v1')->name('api.v1.')->group(function () {
             // Schools Management
             Route::get('schools', [SuperAdminController::class, 'getSchools'])->name('schools.index');
             Route::get('schools/statistics', [SuperAdminController::class, 'getSchoolStatistics'])->name('schools.statistics');
+            Route::get('schools/export', [SuperAdminController::class, 'exportSchools'])->name('schools.export');
             Route::post('schools', [SuperAdminController::class, 'createSchool'])->name('schools.store');
             Route::put('schools/{id}', [SuperAdminController::class, 'updateSchool'])->name('schools.update');
             Route::delete('schools/{id}', [SuperAdminController::class, 'deleteSchool'])->name('schools.destroy');
@@ -346,6 +352,9 @@ Route::middleware('auth:sanctum')->group(function () {
 if (config('app.debug')) {
     require __DIR__ . '/debug.php';
 }
+
+// Test routes for schools data
+require __DIR__ . '/test-schools.php';
 
 // Rate limiting for API routes
 Route::middleware('throttle:60,1')->group(function () {

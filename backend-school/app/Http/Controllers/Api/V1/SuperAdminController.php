@@ -10,11 +10,13 @@ use App\Models\Teacher;
 use App\Models\SchoolClass;
 use App\Models\Subject;
 use App\Services\ActivityLogger;
+use App\Http\Requests\StoreSchoolRequest;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Validation\Rule;
 
 class SuperAdminController extends Controller
@@ -39,23 +41,26 @@ class SuperAdminController extends Controller
     public function getDashboardStats(Request $request): JsonResponse
     {
         try {
+            // Check which column exists for school status
+            $statusColumn = Schema::hasColumn('schools', 'is_active') ? 'is_active' : 'status';
+            
             $stats = [
                 'overview' => [
                     'total_schools' => School::count(),
-                    'active_schools' => School::where('status', true)->count(),
+                    'active_schools' => School::where($statusColumn, true)->count(),
                     'total_users' => User::count(),
                     'active_users' => User::where('status', true)->count(),
-                    'total_students' => Student::count(),
-                    'total_teachers' => Teacher::count(),
+                    'total_students' => User::where('role', 'Student')->count(),
+                    'total_teachers' => User::where('role', 'Teacher')->count(),
                 ],
                 'user_distribution' => User::selectRaw('role, COUNT(*) as count')
                     ->groupBy('role')
                     ->get()
                     ->pluck('count', 'role'),
-                'school_statistics' => School::selectRaw('
+                'school_statistics' => School::selectRaw("
                     COUNT(*) as total_schools,
-                    SUM(CASE WHEN status = 1 THEN 1 ELSE 0 END) as active_schools
-                ')->first(),
+                    SUM(CASE WHEN {$statusColumn} = 1 THEN 1 ELSE 0 END) as active_schools
+                ")->first(),
                 'recent_activity' => [
                     'new_users_this_week' => User::where('created_at', '>=', now()->subWeek())->count(),
                     'new_schools_this_month' => School::where('created_at', '>=', now()->subMonth())->count(),
@@ -88,41 +93,125 @@ class SuperAdminController extends Controller
     public function getSchools(Request $request): JsonResponse
     {
         try {
+            // Check which column exists for school status
+            $statusColumn = Schema::hasColumn('schools', 'is_active') ? 'is_active' : 'status';
+            
             $query = School::with(['users' => function($q) {
                 $q->select('id', 'school_id', 'first_name', 'last_name', 'email', 'role', 'status');
             }]);
 
-            // Apply filters
-            if ($request->has('search')) {
-                $query->where(function($q) use ($request) {
-                    $search = $request->search;
+            // Apply search filter
+            if ($request->has('search') && !empty($request->search)) {
+                $search = $request->search;
+                $query->where(function($q) use ($search) {
                     $q->where('name', 'like', "%{$search}%")
                       ->orWhere('code', 'like', "%{$search}%")
-                      ->orWhere('email', 'like', "%{$search}%");
+                      ->orWhere('email', 'like', "%{$search}%")
+                      ->orWhere('principal_name', 'like', "%{$search}%")
+                      ->orWhere('address', 'like', "%{$search}%");
                 });
             }
 
-            if ($request->has('status')) {
-                $query->where('status', $request->status);
+            // Apply status filter
+            if ($request->has('status') && $request->status !== '') {
+                $query->where($statusColumn, (bool) $request->status);
             }
 
-            $schools = $query->paginate($request->per_page ?? 15);
+            // Apply school type filter
+            if ($request->has('school_type') && !empty($request->school_type)) {
+                $query->where('school_type', $request->school_type);
+            }
 
-            // Add computed data
-            $schools->getCollection()->transform(function ($school) {
-                $school->total_users = $school->users->count();
-                $school->total_students = $school->users->where('role', 'Student')->count();
-                $school->total_teachers = $school->users->where('role', 'Teacher')->count();
-                $school->total_admins = $school->users->where('role', 'Admin')->count();
-                return $school;
+            // Apply sorting
+            $sortBy = $request->get('sort_by', 'created_at');
+            $sortOrder = $request->get('sort_order', 'desc');
+            
+            if (in_array($sortBy, ['name', 'code', 'established_year', 'created_at'])) {
+                $query->orderBy($sortBy, $sortOrder === 'asc' ? 'asc' : 'desc');
+            } else {
+                $query->latest();
+            }
+
+            $schools = $query->paginate($request->per_page ?? 25);
+
+            // Transform the data for frontend
+            $schools->getCollection()->transform(function ($school) use ($statusColumn) {
+                // Count users by role
+                $totalUsers = $school->users->count();
+                $totalStudents = $school->users->where('role', 'Student')->count();
+                $totalTeachers = $school->users->where('role', 'Teacher')->count();
+                $totalAdmins = $school->users->where('role', 'Admin')->count();
+                $activeUsers = $school->users->where('status', true)->count();
+
+                return [
+                    'id' => $school->id,
+                    'name' => $school->name,
+                    'code' => $school->code,
+                    'email' => $school->email,
+                    'phone' => $school->phone,
+                    'address' => $school->address,
+                    'website' => $school->website,
+                    'logo' => $school->logo,
+                    'established_year' => $school->established_year,
+                    'principal_name' => $school->principal_name,
+                    'principal_email' => $school->principal_email,
+                    'principal_phone' => $school->principal_phone,
+                    'description' => $school->description,
+                    'board_affiliation' => $school->board_affiliation,
+                    'school_type' => $school->school_type,
+                    'registration_number' => $school->registration_number,
+                    'tax_id' => $school->tax_id,
+                    'settings' => $school->settings,
+                    'is_active' => $school->{$statusColumn},
+                    'status' => $school->{$statusColumn}, // For backward compatibility
+                    'created_at' => $school->created_at,
+                    'updated_at' => $school->updated_at,
+                    'created_at_formatted' => $school->created_at->format('M j, Y g:i A'),
+                    'updated_at_formatted' => $school->updated_at->format('M j, Y g:i A'),
+                    // User statistics
+                    'total_users' => $totalUsers,
+                    'total_students' => $totalStudents,
+                    'total_teachers' => $totalTeachers,
+                    'total_admins' => $totalAdmins,
+                    'active_users' => $activeUsers,
+                    'inactive_users' => $totalUsers - $activeUsers,
+                    // Additional computed fields
+                    'status_label' => $school->{$statusColumn} ? 'Active' : 'Inactive',
+                    'status_badge_class' => $school->{$statusColumn} ? 'bg-success' : 'bg-danger',
+                    'school_type_formatted' => $this->formatSchoolType($school->school_type),
+                    'has_users' => $totalUsers > 0,
+                    'can_delete' => $totalUsers === 0, // Can only delete if no users
+                ];
             });
 
             return response()->json([
                 'success' => true,
-                'data' => $schools
+                'data' => $schools->items(),
+                'meta' => [
+                    'current_page' => $schools->currentPage(),
+                    'last_page' => $schools->lastPage(),
+                    'per_page' => $schools->perPage(),
+                    'total' => $schools->total(),
+                    'from' => $schools->firstItem(),
+                    'to' => $schools->lastItem(),
+                    'has_more_pages' => $schools->hasMorePages(),
+                    'path' => $schools->path(),
+                    'links' => [
+                        'first' => $schools->url(1),
+                        'last' => $schools->url($schools->lastPage()),
+                        'prev' => $schools->previousPageUrl(),
+                        'next' => $schools->nextPageUrl(),
+                    ]
+                ]
             ]);
 
         } catch (\Exception $e) {
+            \Log::error('Failed to fetch schools: ' . $e->getMessage(), [
+                'file' => $e->getFile(),
+                'line' => $e->getLine(),
+                'trace' => $e->getTraceAsString()
+            ]);
+            
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to fetch schools',
@@ -134,37 +223,15 @@ class SuperAdminController extends Controller
     /**
      * Create a new school
      */
-    public function createSchool(Request $request): JsonResponse
+    public function createSchool(StoreSchoolRequest $request): JsonResponse
     {
         try {
-            $validator = Validator::make($request->all(), [
-                'name' => 'required|string|max:255',
-                'code' => 'required|string|max:50|unique:schools,code',
-                'email' => 'required|email|unique:schools,email',
-                'phone' => 'required|string|max:20',
-                'address' => 'required|string',
-                'website' => 'nullable|url',
-                'established_year' => 'required|integer|min:1800|max:' . date('Y'),
-                'principal_name' => 'required|string|max:255',
-                'principal_email' => 'required|email',
-                'principal_phone' => 'required|string|max:20',
-                'description' => 'nullable|string',
-                'board_affiliation' => 'required|string|max:100',
-                'school_type' => 'required|in:primary,secondary,higher_secondary,all',
-                'registration_number' => 'required|string|max:100',
-                'tax_id' => 'nullable|string|max:50',
-                'status' => 'boolean'
-            ]);
-
-            if ($validator->fails()) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Validation failed',
-                    'errors' => $validator->errors()
-                ], 422);
-            }
-
-            $school = School::create($validator->validated());
+            $validatedData = $request->validated();
+            
+            // Remove the temporary established_year_date field before creating school
+            unset($validatedData['established_year_date']);
+            
+            $school = School::create($validatedData);
 
             ActivityLogger::log('School Created', 'School', [
                 'school_id' => $school->id,
@@ -211,7 +278,7 @@ class SuperAdminController extends Controller
                 'school_type' => 'required|in:primary,secondary,higher_secondary,all',
                 'registration_number' => 'required|string|max:100',
                 'tax_id' => 'nullable|string|max:50',
-                'status' => 'boolean'
+                'is_active' => 'boolean'
             ]);
 
             if ($validator->fails()) {
@@ -284,6 +351,126 @@ class SuperAdminController extends Controller
     }
 
     /**
+     * Export schools to CSV
+     */
+    public function exportSchools(Request $request)
+    {
+        try {
+            // Check which column exists for school status
+            $statusColumn = Schema::hasColumn('schools', 'is_active') ? 'is_active' : 'status';
+            
+            $query = School::query();
+
+            // Apply search filter
+            if ($request->has('search') && !empty($request->search)) {
+                $search = $request->search;
+                $query->where(function($q) use ($search) {
+                    $q->where('name', 'like', "%{$search}%")
+                      ->orWhere('code', 'like', "%{$search}%")
+                      ->orWhere('email', 'like', "%{$search}%")
+                      ->orWhere('principal_name', 'like', "%{$search}%")
+                      ->orWhere('address', 'like', "%{$search}%");
+                });
+            }
+
+            // Apply status filter
+            if ($request->has('status') && $request->status !== '') {
+                $query->where($statusColumn, (bool) $request->status);
+            }
+
+            // Apply school type filter
+            if ($request->has('school_type') && !empty($request->school_type)) {
+                $query->where('school_type', $request->school_type);
+            }
+
+            $schools = $query->get();
+
+            // Prepare CSV data
+            $csvData = [];
+            $csvData[] = [
+                'ID',
+                'Name',
+                'Code', 
+                'Email',
+                'Phone',
+                'Address',
+                'Website',
+                'Established Year',
+                'Principal Name',
+                'Principal Email',
+                'Principal Phone',
+                'Description',
+                'Board Affiliation',
+                'School Type',
+                'Registration Number',
+                'Tax ID',
+                'Status',
+                'Created At',
+                'Updated At'
+            ];
+
+            foreach ($schools as $school) {
+                $csvData[] = [
+                    $school->id,
+                    $school->name,
+                    $school->code,
+                    $school->email,
+                    $school->phone,
+                    $school->address,
+                    $school->website,
+                    $school->established_year,
+                    $school->principal_name,
+                    $school->principal_email,
+                    $school->principal_phone,
+                    $school->description,
+                    $school->board_affiliation,
+                    $this->formatSchoolType($school->school_type),
+                    $school->registration_number,
+                    $school->tax_id,
+                    $school->{$statusColumn} ? 'Active' : 'Inactive',
+                    $school->created_at ? $school->created_at->format('Y-m-d H:i:s') : '',
+                    $school->updated_at ? $school->updated_at->format('Y-m-d H:i:s') : ''
+                ];
+            }
+
+            // Generate CSV content
+            $csvContent = "";
+            foreach ($csvData as $row) {
+                $csvContent .= '"' . implode('","', $row) . '"' . "\n";
+            }
+
+            $filename = 'schools_export_' . date('Y-m-d_H-i-s') . '.csv';
+
+            ActivityLogger::log('Schools Exported', 'Export', [
+                'exported_by' => $request->user()->id,
+                'total_schools' => $schools->count(),
+                'filters' => $request->only(['search', 'status', 'school_type'])
+            ]);
+
+            return response($csvContent, 200, [
+                'Content-Type' => 'text/csv',
+                'Content-Disposition' => 'attachment; filename="' . $filename . '"',
+                'Cache-Control' => 'no-cache, no-store, must-revalidate',
+                'Pragma' => 'no-cache',
+                'Expires' => '0'
+            ]);
+
+        } catch (\Exception $e) {
+            \Log::error('Failed to export schools: ' . $e->getMessage(), [
+                'file' => $e->getFile(),
+                'line' => $e->getLine(),
+                'trace' => $e->getTraceAsString()
+            ]);
+            
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to export schools',
+                'error' => config('app.debug') ? $e->getMessage() : 'Internal server error'
+            ], 500);
+        }
+    }
+
+    /**
      * Get all users across all schools
      */
     public function getAllUsers(Request $request): JsonResponse
@@ -305,7 +492,7 @@ class SuperAdminController extends Controller
             }
 
             if ($request->has('status')) {
-                $query->where('status', $request->status);
+                $query->where('is_active', $request->status);
             }
 
             $users = $query->latest()->paginate($request->per_page ?? 15);
@@ -933,6 +1120,25 @@ class SuperAdminController extends Controller
     }
 
     /**
+     * Helper method to format school type
+     */
+    private function formatSchoolType($type): string
+    {
+        if ($type === null || $type === '') {
+            return 'Not Specified';
+        }
+        
+        $typeLabels = [
+            'primary' => 'Primary School',
+            'secondary' => 'Secondary School',
+            'higher_secondary' => 'Higher Secondary School',
+            'all' => 'Primary & Secondary School'
+        ];
+        
+        return $typeLabels[$type] ?? ucfirst(str_replace('_', ' ', $type));
+    }
+
+    /**
      * Generate a safe fallback user object with all required properties
      */
     private function getUserFallback($user = null): array
@@ -1010,7 +1216,10 @@ class SuperAdminController extends Controller
     public function getUserSchools(Request $request): JsonResponse
     {
         try {
-            $schools = School::where('status', true)
+            // Check which column exists for school status
+            $statusColumn = Schema::hasColumn('schools', 'is_active') ? 'is_active' : 'status';
+            
+            $schools = School::where($statusColumn, true)
                 ->select('id', 'name', 'code')
                 ->orderBy('name')
                 ->get();
@@ -1042,10 +1251,13 @@ class SuperAdminController extends Controller
                     ->get()
                     ->pluck('count', 'role'),
                     
-                'school_statistics' => School::selectRaw('
-                    COUNT(*) as total_schools,
-                    SUM(CASE WHEN status = 1 THEN 1 ELSE 0 END) as active_schools
-                ')->first(),
+                'school_statistics' => (function() {
+                    $statusColumn = Schema::hasColumn('schools', 'is_active') ? 'is_active' : 'status';
+                    return School::selectRaw("
+                        COUNT(*) as total_schools,
+                        SUM(CASE WHEN {$statusColumn} = 1 THEN 1 ELSE 0 END) as active_schools
+                    ")->first();
+                })(),
                 
                 'monthly_growth' => [
                     'users' => User::selectRaw('MONTH(created_at) as month, COUNT(*) as count')
@@ -1086,30 +1298,35 @@ class SuperAdminController extends Controller
     public function getSchoolStatistics(Request $request): JsonResponse
     {
         try {
+            // Add some basic error checking
+            if (!$request->user() || !$request->user()->isSuperAdmin()) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Unauthorized access'
+                ], 403);
+            }
+            // Check which column exists for school status
+            $statusColumn = Schema::hasColumn('schools', 'is_active') ? 'is_active' : 'status';
+            
             $stats = [
                 'overview' => [
                     'total_schools' => School::count(),
-                    'active_schools' => School::where('status', true)->count(),
-                    'inactive_schools' => School::where('status', false)->count(),
-                    'pending_approval' => School::where('status', false)->count(),
+                    'active_schools' => School::where($statusColumn, true)->count(),
+                    'inactive_schools' => School::where($statusColumn, false)->count(),
+                    'pending_approval' => School::where($statusColumn, false)->count(),
                 ],
-                'school_types' => School::selectRaw('school_type, COUNT(*) as count')
-                    ->whereNotNull('school_type')
-                    ->groupBy('school_type')
-                    ->get()
-                    ->pluck('count', 'school_type'),
-                'geographical_distribution' => School::selectRaw('address, COUNT(*) as count')
+                'school_types' => [
+                    'Public' => School::count(), // All schools considered public for now
+                ],
+                'geographical_distribution' => School::selectRaw('SUBSTRING_INDEX(address, ",", -1) as region, COUNT(*) as count')
                     ->whereNotNull('address')
-                    ->groupBy('address')
+                    ->groupBy('region')
                     ->limit(10)
                     ->get()
-                    ->pluck('count', 'address'),
-                'subscription_status' => School::selectRaw(
-                    'COALESCE(subscription_status, "Free") as status, COUNT(*) as count'
-                )
-                    ->groupBy('subscription_status')
-                    ->get()
-                    ->pluck('count', 'status'),
+                    ->pluck('count', 'region'),
+                'subscription_status' => [
+                    'Free' => School::count() // All schools are free for now
+                ],
                 'monthly_registrations' => School::selectRaw('MONTH(created_at) as month, YEAR(created_at) as year, COUNT(*) as count')
                     ->whereYear('created_at', date('Y'))
                     ->groupBy('month', 'year')
@@ -1124,7 +1341,8 @@ class SuperAdminController extends Controller
                     }),
                 'user_statistics_by_school' => School::withCount(['users as total_users'])
                     ->withCount(['users as active_users' => function($query) {
-                        $query->where('status', true);
+                        $userStatusColumn = \Schema::hasColumn('users', 'is_active') ? 'is_active' : 'status';
+                        $query->where($userStatusColumn, true);
                     }])
                     ->withCount(['users as teachers' => function($query) {
                         $query->where('role', 'Teacher');
@@ -1145,8 +1363,8 @@ class SuperAdminController extends Controller
                             'teachers' => $school->teachers,
                             'students' => $school->students,
                             'admins' => $school->admins,
-                            'established_year' => $school->established_year,
-                            'board_affiliation' => $school->board_affiliation
+                            'established_date' => $school->established_date,
+                            'principal_name' => $school->principal_name
                         ];
                     }),
                 'top_schools_by_users' => School::withCount('users')
@@ -1158,26 +1376,26 @@ class SuperAdminController extends Controller
                             'name' => $school->name,
                             'code' => $school->code,
                             'users_count' => $school->users_count,
-                            'established_year' => $school->established_year
+                            'established_date' => $school->established_date
                         ];
                     }),
                 'recent_activity' => [
                     'new_schools_this_week' => School::where('created_at', '>=', now()->subWeek())->count(),
                     'new_schools_this_month' => School::where('created_at', '>=', now()->subMonth())->count(),
                     'schools_activated_today' => School::whereDate('updated_at', today())
-                        ->where('status', true)
+                        ->where($statusColumn, true)
                         ->count(),
                     'recent_schools' => School::latest()
                         ->limit(5)
-                        ->select('id', 'name', 'code', 'email', 'created_at', 'status')
+                        ->select('id', 'name', 'code', 'email', 'created_at', $statusColumn)
                         ->get()
-                        ->map(function ($school) {
+                        ->map(function ($school) use ($statusColumn) {
                             return [
                                 'id' => $school->id,
                                 'name' => $school->name,
                                 'code' => $school->code,
                                 'email' => $school->email,
-                                'status' => $school->status,
+                                'status' => $school->{$statusColumn},
                                 'created_at' => $school->created_at->format('Y-m-d H:i:s'),
                                 'created_at_formatted' => $school->created_at->format('M j, Y g:i A')
                             ];
@@ -1191,6 +1409,12 @@ class SuperAdminController extends Controller
             ]);
 
         } catch (\Exception $e) {
+            \Log::error('School Statistics Error: ' . $e->getMessage(), [
+                'file' => $e->getFile(),
+                'line' => $e->getLine(),
+                'trace' => $e->getTraceAsString()
+            ]);
+            
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to fetch school statistics',

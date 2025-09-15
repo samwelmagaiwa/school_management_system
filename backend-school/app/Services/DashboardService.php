@@ -68,7 +68,7 @@ class DashboardService
     {
         return [
             'total_schools' => School::count(),
-            'active_schools' => School::where('status', true)->count(),
+            'active_schools' => School::where('is_active', true)->count(),
             'total_users' => User::count(),
             'active_users' => User::where('status', true)->count(),
             'total_students' => Student::count(),
@@ -299,7 +299,7 @@ class DashboardService
     private function getOverviewCards(): array
     {
         $totalSchools = School::count();
-        $activeSchools = School::where('status', true)->count();
+        $activeSchools = School::where('is_active', true)->count();
         $inactiveSchools = $totalSchools - $activeSchools;
         $totalUsers = User::count();
         $totalAdmins = User::where('role', 'Admin')->count();
