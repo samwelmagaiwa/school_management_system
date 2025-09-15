@@ -1003,48 +1003,6 @@ class SuperAdminController extends Controller
         ];
     }
 
-    /**
-     * Get user statistics for SuperAdmin dashboard
-     */
-    public function getUserStatistics(Request $request): JsonResponse
-    {
-        try {
-            $stats = [
-                'overview' => [
-                    'total_users' => User::count(),
-                    'active_users' => User::where('status', true)->count(),
-                    'inactive_users' => User::where('status', false)->count(),
-                    'recent_registrations' => User::where('created_at', '>=', now()->subMonth())->count(),
-                    'email_verified' => User::whereNotNull('email_verified_at')->count(),
-                ],
-                'role_distribution' => User::selectRaw('role, COUNT(*) as count')
-                    ->groupBy('role')
-                    ->get()
-                    ->pluck('count', 'role'),
-                'monthly_registrations' => User::selectRaw('MONTH(created_at) as month, COUNT(*) as count')
-                    ->whereYear('created_at', date('Y'))
-                    ->groupBy('month')
-                    ->orderBy('month')
-                    ->get(),
-                'recent_activity' => [
-                    'new_users_this_week' => User::where('created_at', '>=', now()->subWeek())->count(),
-                    'logins_today' => User::whereDate('last_login_at', today())->count(),
-                ]
-            ];
-
-            return response()->json([
-                'success' => true,
-                'data' => $stats
-            ]);
-
-        } catch (\Exception $e) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Failed to fetch user statistics',
-                'error' => config('app.debug') ? $e->getMessage() : 'Internal server error'
-            ], 500);
-        }
-    }
 
     /**
      * Get available schools for user assignment
@@ -1071,35 +1029,6 @@ class SuperAdminController extends Controller
         }
     }
 
-    /**
-     * Get available user roles
-     */
-    public function getUserRoles(Request $request): JsonResponse
-    {
-        try {
-            $roles = [
-                'SuperAdmin',
-                'Admin', 
-                'Teacher',
-                'Student',
-                'Parent',
-                'HR',
-                'Accountant'
-            ];
-
-            return response()->json([
-                'success' => true,
-                'data' => $roles
-            ]);
-
-        } catch (\Exception $e) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Failed to fetch roles',
-                'error' => config('app.debug') ? $e->getMessage() : 'Internal server error'
-            ], 500);
-        }
-    }
 
     /**
      * Get system-wide statistics for reports
@@ -1146,6 +1075,125 @@ class SuperAdminController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to generate reports',
+                'error' => config('app.debug') ? $e->getMessage() : 'Internal server error'
+            ], 500);
+        }
+    }
+
+    /**
+     * Get school statistics for SuperAdmin
+     */
+    public function getSchoolStatistics(Request $request): JsonResponse
+    {
+        try {
+            $stats = [
+                'overview' => [
+                    'total_schools' => School::count(),
+                    'active_schools' => School::where('status', true)->count(),
+                    'inactive_schools' => School::where('status', false)->count(),
+                    'pending_approval' => School::where('status', false)->count(),
+                ],
+                'school_types' => School::selectRaw('school_type, COUNT(*) as count')
+                    ->whereNotNull('school_type')
+                    ->groupBy('school_type')
+                    ->get()
+                    ->pluck('count', 'school_type'),
+                'geographical_distribution' => School::selectRaw('address, COUNT(*) as count')
+                    ->whereNotNull('address')
+                    ->groupBy('address')
+                    ->limit(10)
+                    ->get()
+                    ->pluck('count', 'address'),
+                'subscription_status' => School::selectRaw(
+                    'COALESCE(subscription_status, "Free") as status, COUNT(*) as count'
+                )
+                    ->groupBy('subscription_status')
+                    ->get()
+                    ->pluck('count', 'status'),
+                'monthly_registrations' => School::selectRaw('MONTH(created_at) as month, YEAR(created_at) as year, COUNT(*) as count')
+                    ->whereYear('created_at', date('Y'))
+                    ->groupBy('month', 'year')
+                    ->orderBy('month')
+                    ->get()
+                    ->map(function ($item) {
+                        return [
+                            'month' => date('F', mktime(0, 0, 0, $item->month, 1)),
+                            'year' => $item->year,
+                            'count' => $item->count
+                        ];
+                    }),
+                'user_statistics_by_school' => School::withCount(['users as total_users'])
+                    ->withCount(['users as active_users' => function($query) {
+                        $query->where('status', true);
+                    }])
+                    ->withCount(['users as teachers' => function($query) {
+                        $query->where('role', 'Teacher');
+                    }])
+                    ->withCount(['users as students' => function($query) {
+                        $query->where('role', 'Student');
+                    }])
+                    ->withCount(['users as admins' => function($query) {
+                        $query->where('role', 'Admin');
+                    }])
+                    ->get()
+                    ->map(function ($school) {
+                        return [
+                            'school_name' => $school->name,
+                            'school_code' => $school->code,
+                            'total_users' => $school->total_users,
+                            'active_users' => $school->active_users,
+                            'teachers' => $school->teachers,
+                            'students' => $school->students,
+                            'admins' => $school->admins,
+                            'established_year' => $school->established_year,
+                            'board_affiliation' => $school->board_affiliation
+                        ];
+                    }),
+                'top_schools_by_users' => School::withCount('users')
+                    ->orderBy('users_count', 'desc')
+                    ->limit(10)
+                    ->get()
+                    ->map(function ($school) {
+                        return [
+                            'name' => $school->name,
+                            'code' => $school->code,
+                            'users_count' => $school->users_count,
+                            'established_year' => $school->established_year
+                        ];
+                    }),
+                'recent_activity' => [
+                    'new_schools_this_week' => School::where('created_at', '>=', now()->subWeek())->count(),
+                    'new_schools_this_month' => School::where('created_at', '>=', now()->subMonth())->count(),
+                    'schools_activated_today' => School::whereDate('updated_at', today())
+                        ->where('status', true)
+                        ->count(),
+                    'recent_schools' => School::latest()
+                        ->limit(5)
+                        ->select('id', 'name', 'code', 'email', 'created_at', 'status')
+                        ->get()
+                        ->map(function ($school) {
+                            return [
+                                'id' => $school->id,
+                                'name' => $school->name,
+                                'code' => $school->code,
+                                'email' => $school->email,
+                                'status' => $school->status,
+                                'created_at' => $school->created_at->format('Y-m-d H:i:s'),
+                                'created_at_formatted' => $school->created_at->format('M j, Y g:i A')
+                            ];
+                        })
+                ]
+            ];
+
+            return response()->json([
+                'success' => true,
+                'data' => $stats
+            ]);
+
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to fetch school statistics',
                 'error' => config('app.debug') ? $e->getMessage() : 'Internal server error'
             ], 500);
         }

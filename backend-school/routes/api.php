@@ -39,6 +39,16 @@ Route::get('/health', function () {
     ]);
 });
 
+// Named login route (required by Laravel Auth middleware)
+Route::get('/login', function () {
+    return response()->json([
+        'success' => false,
+        'message' => 'Unauthenticated. Please login.',
+        'login_url' => '/api/auth/login',
+        'login_v1_url' => '/api/v1/auth/login'
+    ], 401);
+})->name('login');
+
 Route::get('/test', function () {
     return response()->json([
         'success' => true,
@@ -90,6 +100,7 @@ Route::prefix('superadmin')->name('superadmin.')->middleware('auth:sanctum')->gr
     
     // Schools Management
     Route::get('schools', [SuperAdminController::class, 'getSchools'])->name('schools.index');
+    Route::get('schools/statistics', [SuperAdminController::class, 'getSchoolStatistics'])->name('schools.statistics');
     Route::post('schools', [SuperAdminController::class, 'createSchool'])->name('schools.store');
     Route::put('schools/{id}', [SuperAdminController::class, 'updateSchool'])->name('schools.update');
     Route::delete('schools/{id}', [SuperAdminController::class, 'deleteSchool'])->name('schools.destroy');
@@ -129,6 +140,12 @@ Route::prefix('v1')->name('api.v1.')->group(function () {
             Route::get('stats', [DashboardController::class, 'stats'])->name('stats');
         });
         
+        // Schools - Specific routes first (before apiResource)
+        Route::prefix('schools')->name('schools.')->group(function () {
+            Route::get('statistics', [SchoolController::class, 'statistics'])->name('statistics');
+            Route::post('bulk-status', [SchoolController::class, 'bulkUpdateStatus'])->name('bulk-status');
+        });
+        
         // Schools - Full CRUD with apiResource
         Route::apiResource('schools', SchoolController::class)->names([
             'index' => 'schools.index',
@@ -137,10 +154,6 @@ Route::prefix('v1')->name('api.v1.')->group(function () {
             'update' => 'schools.update',
             'destroy' => 'schools.destroy',
         ]);
-        Route::prefix('schools')->name('schools.')->group(function () {
-            Route::get('statistics', [SchoolController::class, 'statistics'])->name('statistics');
-            Route::post('bulk-status', [SchoolController::class, 'bulkUpdateStatus'])->name('bulk-status');
-        });
         
         // Students - Full CRUD with apiResource
         Route::apiResource('students', StudentController::class)->names([
@@ -294,6 +307,7 @@ Route::prefix('v1')->name('api.v1.')->group(function () {
             
             // Schools Management
             Route::get('schools', [SuperAdminController::class, 'getSchools'])->name('schools.index');
+            Route::get('schools/statistics', [SuperAdminController::class, 'getSchoolStatistics'])->name('schools.statistics');
             Route::post('schools', [SuperAdminController::class, 'createSchool'])->name('schools.store');
             Route::put('schools/{id}', [SuperAdminController::class, 'updateSchool'])->name('schools.update');
             Route::delete('schools/{id}', [SuperAdminController::class, 'deleteSchool'])->name('schools.destroy');
